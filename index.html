@@ -84,10 +84,10 @@ function addRecentLog(id, info) {
   storageSet('recent', filtered.slice(0, 5));
 }
 
-function PlayerRow({ p, votes, myVotes, votesLeft, onVote, accent }) {
+function PlayerRow({ p, votes, myVotes, votesLeft, votingOpen, onVote, accent }) {
   const voted = myVotes.includes(p.id);
   const cnt = votes[p.id] || 0;
-  const can = votesLeft > 0 && !voted;
+  const can = votingOpen && votesLeft > 0 && !voted;
   return (
     <div style={{
       display:'flex', alignItems:'center', gap:8,
@@ -174,6 +174,8 @@ function AdminPanel({ leaderboard, onRefresh }) {
   );
 }
 
+const DEFAULT_LIMIT_MIN = 30;
+
 function App() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -183,8 +185,21 @@ function App() {
   const [votes, setVotes] = useState({});
   const [myVotes, setMyVotes] = useState([]);
   const [leaderboard, setLeaderboard] = useState([]);
+  // Admin: reset lobby
+  const [resetStatus, setResetStatus] = useState('');
+  // Admin: time limit controls
+  const [bypassTimeLimit, setBypassTimeLimit] = useState(false);
+  const [timeLimitMin, setTimeLimitMin] = useState(DEFAULT_LIMIT_MIN);
 
   const votesLeft = MAX_VOTES - myVotes.length;
+
+  // Czy głosowanie jest otwarte (limit czasowy)
+  const logAge = logData ? (Date.now() / 1000 - (logData.info?.date ?? 0)) : 0;
+  const timeLimitSec = timeLimitMin * 60;
+  const votingOpen = ADMIN_SECRET
+    ? (bypassTimeLimit || logAge < timeLimitSec)
+    : logAge < timeLimitSec;
+  const timeLeft = Math.max(0, Math.ceil((timeLimitSec - logAge) / 60));
 
   const refreshLeaderboard = React.useCallback(() => {
     fetch('/api/leaderboard?limit=20')
@@ -222,6 +237,7 @@ function App() {
 
   const vote = useCallback(async (steamId, playerName) => {
     const isAdmin = !!ADMIN_SECRET;
+    if (!votingOpen && !isAdmin) return;
     if (!isAdmin && (votesLeft <= 0 || myVotes.includes(steamId))) return;
     if (!isAdmin) {
       const nm = [...myVotes, steamId];
@@ -242,7 +258,21 @@ function App() {
     } catch {
       setVotes(v => ({ ...v, [steamId]: (v[steamId]||0)+1 }));
     }
-  }, [myVotes, votesLeft, logId]);
+  }, [myVotes, votesLeft, logId, votingOpen]);
+
+  const resetLobby = useCallback(async () => {
+    setResetStatus('…');
+    await fetch('/api/admin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'reset_session', secret: ADMIN_SECRET, logId, sessionId: SESSION_ID }),
+    }).catch(() => {});
+    storageSet(`m:${logId}`, []);
+    setMyVotes([]);
+    const sr = await fetch(`/api/standings?id=${logId}`).catch(() => null);
+    if (sr?.ok) setVotes(await sr.json());
+    setResetStatus('✓ reset');
+  }, [logId]);
 
   // Auto-głos dla medyków przy załadowaniu logu
   React.useEffect(() => {
@@ -355,23 +385,25 @@ function App() {
           <p style={{textAlign:'center', fontSize:11, color:'#444', marginTop:4, letterSpacing:'0.05em'}}>{logData.info?.map||''}</p>
 
           <p style={{textAlign:'center', fontSize:12, color:'#555', margin:'16px 0 20px'}}>
-            {ADMIN_SECRET
-              ? <span style={{color:'#f87171'}}>admin — unlimited votes</span>
-              : votesLeft > 0
-                ? <><b style={{color:'#e8e8e8'}}>{votesLeft}</b> / {MAX_VOTES} votes left</>
-                : <span style={{color:'#4ade80'}}>✓ voted</span>
+            {!votingOpen && !ADMIN_SECRET
+              ? <span style={{color:'#f87171'}}>voting closed — {timeLimitMin}min window expired</span>
+              : ADMIN_SECRET
+                ? <span style={{color:'#f87171'}}>admin — unlimited votes</span>
+                : votesLeft > 0
+                  ? <><b style={{color:'#e8e8e8'}}>{votesLeft}</b> / {MAX_VOTES} votes left · {timeLeft}min remaining</>
+                  : <span style={{color:'#4ade80'}}>✓ voted</span>
             }
           </p>
 
           <div style={{display:'flex', gap:0}}>
             <div style={{flex:1, minWidth:0}}>
               <div style={{fontSize:11, fontWeight:500, letterSpacing:'0.12em', color:'#378ADD', textAlign:'center', marginBottom:10}}>BLU</div>
-              {blu.map(p => <PlayerRow key={p.id} p={p} votes={votes} myVotes={myVotes} votesLeft={votesLeft} onVote={vote} accent="#378ADD"/>)}
+              {blu.map(p => <PlayerRow key={p.id} p={p} votes={votes} myVotes={myVotes} votesLeft={ADMIN_SECRET ? 99 : votesLeft} votingOpen={votingOpen || !!ADMIN_SECRET} onVote={vote} accent="#378ADD"/>)}
             </div>
             <div style={{width:1, background:'#1e1e1e', margin:'0 14px'}}/>
             <div style={{flex:1, minWidth:0}}>
               <div style={{fontSize:11, fontWeight:500, letterSpacing:'0.12em', color:'#E24B4A', textAlign:'center', marginBottom:10}}>RED</div>
-              {red.map(p => <PlayerRow key={p.id} p={p} votes={votes} myVotes={myVotes} votesLeft={votesLeft} onVote={vote} accent="#E24B4A"/>)}
+              {red.map(p => <PlayerRow key={p.id} p={p} votes={votes} myVotes={myVotes} votesLeft={ADMIN_SECRET ? 99 : votesLeft} votingOpen={votingOpen || !!ADMIN_SECRET} onVote={vote} accent="#E24B4A"/>)}
             </div>
           </div>
 
@@ -389,34 +421,31 @@ function App() {
             </div>
           )}
 
-          {ADMIN_SECRET && logId && (() => {
-            const [resetStatus, setResetStatus] = React.useState('');
-            async function resetLobby() {
-              setResetStatus('…');
-              // Usuń głosy tej sesji z DB
-              await fetch('/api/admin', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'reset_session', secret: ADMIN_SECRET, logId, sessionId: SESSION_ID }),
-              }).catch(() => {});
-              // Wyczyść localStorage
-              storageSet(`m:${logId}`, []);
-              setMyVotes([]);
-              // Odśwież standings
-              const sr = await fetch(`/api/standings?id=${logId}`).catch(() => null);
-              if (sr?.ok) setVotes(await sr.json());
-              setResetStatus('✓ reset');
-            }
-            return (
-              <div style={{marginTop:16, display:'flex', alignItems:'center', gap:10}}>
+          {ADMIN_SECRET && logId && (
+            <div style={{marginTop:20, padding:'12px', border:'1px solid #1e1e1e', borderRadius:4}}>
+              <div style={{fontSize:10, fontWeight:500, letterSpacing:'0.12em', color:'#f87171', textTransform:'uppercase', marginBottom:10}}>admin · lobby</div>
+              <div style={{display:'flex', flexWrap:'wrap', gap:8, alignItems:'center'}}>
                 <button onClick={resetLobby}
-                  style={{background:'transparent', border:'1px solid #2a2a2a', color:'#555', borderRadius:3, fontSize:11, padding:'4px 12px', cursor:'pointer'}}>
-                  reset my votes for this lobby
+                  style={{background:'transparent', border:'1px solid #2a2a2a', color:'#777', borderRadius:3, fontSize:11, padding:'4px 10px', cursor:'pointer'}}>
+                  reset my votes
                 </button>
+                <label style={{display:'flex', alignItems:'center', gap:6, fontSize:11, color:'#555', cursor:'pointer'}}>
+                  <input type="checkbox" checked={bypassTimeLimit} onChange={e => setBypassTimeLimit(e.target.checked)}
+                    style={{accentColor:'#f87171'}}/>
+                  bypass time limit
+                </label>
+                <label style={{display:'flex', alignItems:'center', gap:6, fontSize:11, color:'#555'}}>
+                  window:
+                  <input type="number" min="1" max="1440" value={timeLimitMin}
+                    onChange={e => setTimeLimitMin(Math.max(1, parseInt(e.target.value)||30))}
+                    style={{width:48, background:'#1a1a1a', border:'1px solid #2a2a2a', borderRadius:3,
+                      color:'#e8e8e8', fontSize:11, padding:'2px 6px', fontFamily:'inherit'}}/>
+                  min
+                </label>
                 {resetStatus && <span style={{fontSize:11, color:'#888'}}>{resetStatus}</span>}
               </div>
-            );
-          })()}
+            </div>
+          )}
         </div>
       )}
     </div>
