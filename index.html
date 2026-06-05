@@ -113,15 +113,12 @@ function App() {
 
   const votesLeft = MAX_VOTES - myVotes.length;
 
-  const load = useCallback(async () => {
-    const id = parseLogId(input);
-    if (!id) { setError('Enter a valid link or log ID (e.g. 4066082)'); return; }
+  const loadId = useCallback(async (id) => {
     setLoading(true); setError(''); setLogData(null);
     try {
       const data = await fetchLog(id);
       const sm = storageGet(`m:${id}`) || [];
       setMyVotes(sm);
-      // Pobierz globalne wyniki z backendu
       try {
         const sr = await fetch(`/api/standings?id=${id}`);
         setVotes(sr.ok ? await sr.json() : {});
@@ -133,7 +130,13 @@ function App() {
     } finally {
       setLoading(false);
     }
-  }, [input]);
+  }, []);
+
+  const load = useCallback(async () => {
+    const id = parseLogId(input);
+    if (!id) { setError('Enter a valid link or log ID (e.g. 4066082)'); return; }
+    await loadId(id);
+  }, [input, loadId]);
 
   const vote = useCallback(async (steamId) => {
     if (votesLeft <= 0 || myVotes.includes(steamId)) return;
@@ -198,7 +201,7 @@ function App() {
           <div style={{padding:'20px 20px 0'}}>
             <div style={{fontSize:10, fontWeight:500, letterSpacing:'0.12em', color:'#333', textTransform:'uppercase', marginBottom:8}}>recent</div>
             {recent.map(r => (
-              <div key={r.id} onClick={() => { setInput(`https://logs.tf/${r.id}`); }}
+              <div key={r.id} onClick={() => { setInput(`https://logs.tf/${r.id}`); loadId(r.id); }}
                 style={{display:'flex', alignItems:'center', gap:10, padding:'7px 0', borderBottom:'1px solid #161616', cursor:'pointer'}}
                 onMouseEnter={e=>e.currentTarget.style.opacity='.7'} onMouseLeave={e=>e.currentTarget.style.opacity='1'}>
                 <span style={{fontSize:12, color:'#e8e8e8'}}>#{r.id}</span>
