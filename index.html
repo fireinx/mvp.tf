@@ -116,9 +116,13 @@ const ADMIN_SECRET = new URLSearchParams(window.location.search).get('admin') ||
 function AdminPanel({ leaderboard, onRefresh }) {
   const [status, setStatus] = useState('');
   const [confirmClear, setConfirmClear] = useState(false);
+  const [removed, setRemoved] = useState(new Set());
 
   async function adminAction(body) {
     setStatus('…');
+    // Optimistic: ukryj od razu
+    if (body.steamId) setRemoved(s => new Set([...s, body.steamId]));
+    if (body.action === 'clear_all') setRemoved(new Set(leaderboard.map(r => r.steam_id)));
     try {
       const r = await fetch('/api/admin', {
         method: 'POST',
@@ -127,15 +131,17 @@ function AdminPanel({ leaderboard, onRefresh }) {
       });
       const j = await r.json();
       if (j.ok) { setStatus(`✓ done (${j.deleted ?? ''} rows)`); onRefresh(); }
-      else setStatus('✗ ' + (j.error || 'error'));
-    } catch { setStatus('✗ network error'); }
+      else { setStatus('✗ ' + (j.error || 'error')); setRemoved(new Set()); }
+    } catch { setStatus('✗ network error'); setRemoved(new Set()); }
   }
+
+  const visible = leaderboard.filter(r => !removed.has(r.steam_id));
 
   return (
     <div style={{margin:'24px 20px 0', padding:'14px', border:'1px solid #2a2a2a', borderRadius:4}}>
       <div style={{fontSize:10, fontWeight:500, letterSpacing:'0.12em', color:'#f87171', textTransform:'uppercase', marginBottom:12}}>admin panel</div>
-      <div style={{fontSize:11, color:'#555', marginBottom:12}}>Click a player row to remove them from the leaderboard.</div>
-      {leaderboard.map(row => (
+      <div style={{fontSize:11, color:'#555', marginBottom:12}}>Click remove to delete a player from the leaderboard.</div>
+      {visible.map(row => (
         <div key={row.steam_id} style={{display:'flex', alignItems:'center', gap:8, padding:'5px 0', borderBottom:'1px solid #161616'}}>
           <span style={{flex:1, fontSize:12, color:'#e8e8e8', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>{row.name || row.steam_id}</span>
           <span style={{fontSize:11, color:'#555'}}>{row.total_votes}pts</span>

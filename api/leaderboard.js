@@ -11,7 +11,7 @@ const pool = new Pool({
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Cache-Control', 's-maxage=30, stale-while-revalidate');
+  res.setHeader('Cache-Control', 'no-store');
 
   const limit = Math.min(parseInt(req.query.limit) || 20, 50);
 
