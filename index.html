@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MVP · logs.tf</title>
+<script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7/babel.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#0f0f0f;color:#aaa;font-family:'DM Mono','Courier New',monospace;min-height:100vh}
+  input{background:#1a1a1a;border:1px solid #2a2a2a;border-radius:4px;padding:10px 14px;font-size:14px;font-family:inherit;color:#e8e8e8;outline:none;transition:border-color .15s;width:100%}
+  input:focus{border-color:#3a3a3a}
+  .btn-go{background:#e8e8e8;color:#0f0f0f;border:none;border-radius:4px;font-family:inherit;font-size:14px;font-weight:500;padding:10px 20px;cursor:pointer;transition:background .15s;flex-shrink:0}
+  .btn-go:hover:not(:disabled){background:#ccc}
+  .btn-go:disabled{opacity:.4;cursor:not-allowed}
+  .vbtn{background:#1a1a1a;border:1px solid #2a2a2a;border-radius:3px;color:#aaa;font-family:inherit;font-size:12px;font-weight:500;padding:3px 10px;cursor:pointer;flex-shrink:0;transition:all .1s}
+  .vbtn:hover:not(:disabled){background:#e8e8e8;color:#0f0f0f;border-color:#e8e8e8}
+  .vbtn.voted{background:#e8e8e8;color:#0f0f0f;border-color:#e8e8e8}
+  .vbtn:disabled{color:#2a2a2a;border-color:#1e1e1e;cursor:not-allowed}
+  ::-webkit-scrollbar{width:4px}
+  ::-webkit-scrollbar-track{background:#0f0f0f}
+  ::-webkit-scrollbar-thumb{background:#2a2a2a;border-radius:2px}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useCallback } = React;
+const MAX_VOTES = 3;
+const SESSION_ID = Math.random().toString(36).slice(2, 10);
+
+const CLASS_SHORT = {
+  scout:'Scout', soldier:'Solly', pyro:'Pyro', demoman:'Demo',
+  heavyweapons:'Heavy', engineer:'Engi', medic:'Medic', sniper:'Sniper', spy:'Spy'
+};
+
+function parseLogId(s) {
+  const m = s.trim().match(/(\d{5,8})/);
+  return m ? m[1] : null;
+}
+
+function topClass(stats) {
+  if (!stats?.length) return '';
+  const t = stats.reduce((a,b) => a.total_time > b.total_time ? a : b);
+  return CLASS_SHORT[t.type] || t.type || '';
+}
+
+async function fetchLog(logId) {
+  // Proxy przez Vercel function — bez CORS problemów
+  const res = await fetch(`/api/log?id=${logId}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+  if (!data.success) throw new Error('Log nie istnieje');
+  return data;
+}
+
+function storageGet(key) {
+  try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : null; } catch { return null; }
+}
+function storageSet(key, val) {
+  try { localStorage.setItem(key, JSON.stringify(val)); } catch {}
+}
+
+function PlayerRow({ p, votes, myVotes, votesLeft, onVote, accent }) {
+  const voted = myVotes.includes(p.id);
+  const cnt = votes[p.id] || 0;
+  const can = votesLeft > 0 && !voted;
+  return (
+    <div style={{
+      display:'flex', alignItems:'center', gap:8,
+      padding:'7px 0 7px 8px',
+      borderBottom:'1px solid #1a1a1a',
+      borderLeft: voted ? `2px solid ${accent}` : '2px solid transparent'
+    }}>
+      <div style={{flex:1, minWidth:0}}>
+        <div style={{fontSize:13, fontWeight:500, color:'#e8e8e8', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'}}>{p.name}</div>
+        <div style={{fontSize:10, color:'#444', marginTop:2}}>{[p.cls, `${p.k}/${p.d}`, p.dpm ? `${p.dpm}dpm` : ''].filter(Boolean).join(' · ')}</div>
+      </div>
+      {cnt > 0 && <span style={{fontSize:13, fontWeight:500, color:'#e8e8e8', minWidth:16, textAlign:'right'}}>{cnt}</span>}
+      <button className={`vbtn${voted ? ' voted' : ''}`} onClick={() => onVote(p.id)} disabled={!can}>
+        {voted ? '✓' : '+1'}
+      </button>
+    </div>
+  );
+}
+
+function App() {
+  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [logData, setLogData] = useState(null);
+  const [logId, setLogId] = useState(null);
+  const [votes, setVotes] = useState({});
+  const [myVotes, setMyVotes] = useState([]);
+
+  const votesLeft = MAX_VOTES - myVotes.length;
+
+  const load = useCallback(async () => {
+    const id = parseLogId(input);
+    if (!id) { setError('Podaj prawidłowy link lub ID (np. 4066082)'); return; }
+    setLoading(true); setError(''); setLogData(null);
+    try {
+      const data = await fetchLog(id);
+      const sv = storageGet(`v:${id}`) || {};
+      const sm = storageGet(`m:${id}:${SESSION_ID}`) || [];
+      setVotes(sv); setMyVotes(sm);
+      setLogData(data); setLogId(id);
+    } catch(e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [input]);
+
+  const vote = useCallback(async (steamId) => {
+    if (votesLeft <= 0 || myVotes.includes(steamId)) return;
+    const nv = { ...votes, [steamId]: (votes[steamId]||0)+1 };
+    const nm = [...myVotes, steamId];
+    setVotes(nv); setMyVotes(nm);
+    storageSet(`v:${logId}`, nv);
+    storageSet(`m:${logId}:${SESSION_ID}`, nm);
+  }, [votes, myVotes, votesLeft, logId]);
+
+  const reset = () => { setLogData(null); setLogId(null); setInput(''); setVotes({}); setMyVotes([]); setError(''); };
+
+  const players = logData ? Object.entries(logData.players||{}).map(([id,p]) => ({
+    id, name: logData.names?.[id] || id,
+    team: logData.teams?.Blue?.players?.includes(id) ? 'BLU' : 'RED',
+    cls: topClass(p.class_stats), k: p.kills??0, d: p.deaths??0, dpm: p.dapm??0
+  })) : [];
+
+  const blu = players.filter(p => p.team==='BLU');
+  const red = players.filter(p => p.team==='RED');
+  const ranked = [...players].filter(p => (votes[p.id]||0)>0).sort((a,b) => (votes[b.id]||0)-(votes[a.id]||0));
+  const bScore = logData?.teams?.Blue?.score ?? 0;
+  const rScore = logData?.teams?.Red?.score ?? 0;
+
+  return (
+    <div style={{maxWidth:520, margin:'0 auto', paddingBottom:48}}>
+
+      <div style={{padding:'24px 20px 12px', borderBottom:'1px solid #1e1e1e', display:'flex', alignItems:'baseline', gap:10}}>
+        <span style={{fontSize:18, fontWeight:500, color:'#e8e8e8'}}>MVP</span>
+        <span style={{fontSize:12, color:'#444', letterSpacing:'0.06em'}}>logs.tf</span>
+      </div>
+
+      <div style={{display:'flex', gap:8, padding:'18px 20px 0'}}>
+        <input
+          placeholder="logs.tf/4066082 lub samo ID"
+          value={input}
+          onChange={e => { setInput(e.target.value); setError(''); }}
+          onKeyDown={e => e.key==='Enter' && !loading && !logData && load()}
+        />
+        <button className="btn-go" onClick={logData ? reset : load} disabled={loading}>
+          {loading ? '···' : logData ? '↩' : 'GO'}
+        </button>
+      </div>
+
+      {error && <p style={{margin:'10px 20px 0', fontSize:12, color:'#f87171'}}>{error}</p>}
+      {!logData && !loading && !error && <p style={{textAlign:'center', color:'#2a2a2a', fontSize:13, marginTop:56}}>wklej link i naciśnij GO</p>}
+      {loading && <p style={{textAlign:'center', color:'#333', fontSize:13, marginTop:56}}>pobieranie danych…</p>}
+
+      {logData && (
+        <div style={{padding:'0 20px'}}>
+          <div style={{display:'flex', alignItems:'center', justifyContent:'center', gap:12, marginTop:28}}>
+            <span style={{fontSize:11, fontWeight:500, letterSpacing:'0.12em', color:'#378ADD'}}>BLU</span>
+            <span style={{fontSize:44, fontWeight:500, color:'#e8e8e8', lineHeight:1, letterSpacing:'-0.04em'}}>{bScore}</span>
+            <span style={{fontSize:28, color:'#2a2a2a'}}>—</span>
+            <span style={{fontSize:44, fontWeight:500, color:'#e8e8e8', lineHeight:1, letterSpacing:'-0.04em'}}>{rScore}</span>
+            <span style={{fontSize:11, fontWeight:500, letterSpacing:'0.12em', color:'#E24B4A'}}>RED</span>
+          </div>
+          <p style={{textAlign:'center', fontSize:11, color:'#444', marginTop:4, letterSpacing:'0.05em'}}>{logData.info?.map||''}</p>
+
+          <p style={{textAlign:'center', fontSize:12, color:'#555', margin:'16px 0 20px'}}>
+            {votesLeft > 0
+              ? <><b style={{color:'#e8e8e8'}}>{votesLeft}</b> / {MAX_VOTES} głosów</>
+              : <span style={{color:'#4ade80'}}>✓ zagłosowano</span>
+            }
+          </p>
+
+          <div style={{display:'flex', gap:0}}>
+            <div style={{flex:1, minWidth:0}}>
+              <div style={{fontSize:11, fontWeight:500, letterSpacing:'0.12em', color:'#378ADD', textAlign:'center', marginBottom:10}}>BLU</div>
+              {blu.map(p => <PlayerRow key={p.id} p={p} votes={votes} myVotes={myVotes} votesLeft={votesLeft} onVote={vote} accent="#378ADD"/>)}
+            </div>
+            <div style={{width:1, background:'#1e1e1e', margin:'0 14px'}}/>
+            <div style={{flex:1, minWidth:0}}>
+              <div style={{fontSize:11, fontWeight:500, letterSpacing:'0.12em', color:'#E24B4A', textAlign:'center', marginBottom:10}}>RED</div>
+              {red.map(p => <PlayerRow key={p.id} p={p} votes={votes} myVotes={myVotes} votesLeft={votesLeft} onVote={vote} accent="#E24B4A"/>)}
+            </div>
+          </div>
+
+          {ranked.length > 0 && (
+            <div style={{marginTop:28, paddingTop:18, borderTop:'1px solid #1e1e1e'}}>
+              <div style={{fontSize:11, fontWeight:500, letterSpacing:'0.12em', color:'#333', marginBottom:10, textTransform:'uppercase'}}>ranking</div>
+              {ranked.map((p,i) => (
+                <div key={p.id} style={{display:'flex', alignItems:'center', gap:12, padding:'7px 0', borderBottom:'1px solid #161616'}}>
+                  <span style={{fontSize:11, color:'#333', minWidth:14}}>{i+1}</span>
+                  <span style={{flex:1, fontSize:13, fontWeight:500, color:'#e8e8e8'}}>{p.name}</span>
+                  <span style={{fontSize:11, fontWeight:500, letterSpacing:'0.08em', color: p.team==='BLU'?'#378ADD':'#E24B4A'}}>{p.team}</span>
+                  <span style={{fontSize:14, fontWeight:500, color:'#e8e8e8'}}>{votes[p.id]}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
