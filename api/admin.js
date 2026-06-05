@@ -27,6 +27,11 @@ const CONTEST_INIT = `
     first_seen TIMESTAMPTZ  DEFAULT NOW(),
     last_seen  TIMESTAMPTZ  DEFAULT NOW()
   );
+  CREATE TABLE IF NOT EXISTS contest_exclusions (
+    contest_id INT        NOT NULL REFERENCES contests(id) ON DELETE CASCADE,
+    steam_id   VARCHAR(25) NOT NULL,
+    PRIMARY KEY (contest_id, steam_id)
+  );
 `;
 
 export default async function handler(req, res) {
@@ -111,14 +116,24 @@ export default async function handler(req, res) {
     }
 
     if (action === 'delete_player_from_contest') {
-      // Usuwa głosy gracza tylko z logów należących do danego konkursu
+      // Wyklucza gracza z rankingu konkursowego BEZ usuwania głosów (HoF nienaruszone)
       if (!steamId || !contestId) return res.status(400).json({ error: 'Missing steamId or contestId' });
-      const { rowCount } = await client.query(`
-        DELETE FROM votes
-        WHERE steam_id = $1
-          AND log_id IN (SELECT log_id FROM contest_logs WHERE contest_id = $2)
-      `, [steamId, contestId]);
-      return res.status(200).json({ ok: true, deleted: rowCount });
+      await client.query(`
+        INSERT INTO contest_exclusions (contest_id, steam_id) VALUES ($1, $2) ON CONFLICT DO NOTHING
+      `, [contestId, steamId]);
+      return res.status(200).json({ ok: true });
+    }
+
+    if (action === 'clear_contest_players') {
+      // Wyklucza wszystkich graczy z danego rankingu konkursowego
+      if (!contestId) return res.status(400).json({ error: 'Missing contestId' });
+      await client.query(`
+        INSERT INTO contest_exclusions (contest_id, steam_id)
+        SELECT DISTINCT $1, steam_id FROM votes
+        WHERE log_id IN (SELECT log_id FROM contest_logs WHERE contest_id = $1)
+        ON CONFLICT DO NOTHING
+      `, [contestId]);
+      return res.status(200).json({ ok: true });
     }
 
     if (action === 'remove_log_from_contest') {

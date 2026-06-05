@@ -271,8 +271,12 @@ function AdminHomePanel({ leaderboard, onRefreshLeaderboard, globalRecent, onRef
             act('delete_player_from_contest', {steamId, contestId: parseInt(playersTab)});
           }
         }}
-        onClearAll={playersTab === 'hof' ? () => act('clear_all') : null}
-        actionLabel="clear entire HoF"
+        onClearAll={
+          playersTab === 'hof'
+            ? () => act('clear_all')
+            : () => act('clear_contest_players', {contestId: parseInt(playersTab)})
+        }
+        actionLabel={playersTab === 'hof' ? 'clear entire HoF' : 'clear all from contest'}
       />
     </div>
   );

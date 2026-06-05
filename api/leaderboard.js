@@ -19,6 +19,13 @@ export default async function handler(req, res) {
 
   const client = await pool.connect();
   try {
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS contest_exclusions (
+        contest_id INT NOT NULL,
+        steam_id   VARCHAR(25) NOT NULL,
+        PRIMARY KEY (contest_id, steam_id)
+      )
+    `);
     let query, params;
 
     if (contestId) {
@@ -33,7 +40,10 @@ export default async function handler(req, res) {
           COUNT(DISTINCT v.log_id)::int          AS games_voted_in
         FROM votes v
         INNER JOIN contest_logs cl ON cl.log_id = v.log_id AND cl.contest_id = $2
-        WHERE 1=1
+        WHERE NOT EXISTS (
+          SELECT 1 FROM contest_exclusions ce
+          WHERE ce.contest_id = $2 AND ce.steam_id = v.steam_id
+        )
         GROUP BY v.steam_id
         ORDER BY total_votes DESC
         LIMIT $1
