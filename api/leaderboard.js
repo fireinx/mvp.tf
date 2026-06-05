@@ -33,7 +33,7 @@ export default async function handler(req, res) {
           COUNT(DISTINCT v.log_id)::int          AS games_voted_in
         FROM votes v
         INNER JOIN contest_logs cl ON cl.log_id = v.log_id AND cl.contest_id = $2
-        WHERE v.session_id NOT LIKE 'auto:%'
+        WHERE 1=1
         GROUP BY v.steam_id
         ORDER BY total_votes DESC
         LIMIT $1
@@ -51,8 +51,7 @@ export default async function handler(req, res) {
           COUNT(DISTINCT v.log_id)::int          AS games_voted_in
         FROM votes v
         LEFT JOIN log_settings ls ON ls.log_id = v.log_id
-        WHERE v.session_id NOT LIKE 'auto:%'
-          AND (ls.excluded IS NULL OR ls.excluded = FALSE)
+        WHERE (ls.excluded IS NULL OR ls.excluded = FALSE)
         GROUP BY v.steam_id
         ORDER BY total_votes DESC
         LIMIT $1

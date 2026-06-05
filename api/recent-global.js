@@ -1,5 +1,4 @@
 // GET /api/recent-global?limit=20
-// Ostatnio otwarte lobby (ze wszystkich użytkowników) — tylko dla admina
 
 import pkg from 'pg';
 const { Pool } = pkg;
@@ -9,6 +8,17 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
+const INIT_SQL = `
+  CREATE TABLE IF NOT EXISTS log_settings (
+    log_id     VARCHAR(10)  PRIMARY KEY,
+    map        VARCHAR(80)  NOT NULL DEFAULT '',
+    title      VARCHAR(120) NOT NULL DEFAULT '',
+    excluded   BOOLEAN      NOT NULL DEFAULT FALSE,
+    first_seen TIMESTAMPTZ  DEFAULT NOW(),
+    last_seen  TIMESTAMPTZ  DEFAULT NOW()
+  )
+`;
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Cache-Control', 'no-store');
@@ -17,6 +27,8 @@ export default async function handler(req, res) {
 
   const client = await pool.connect();
   try {
+    await client.query(INIT_SQL);
+
     const { rows } = await client.query(`
       SELECT
         ls.log_id,
@@ -28,7 +40,6 @@ export default async function handler(req, res) {
         COUNT(v.*)::int                   AS total_votes
       FROM log_settings ls
       LEFT JOIN votes v ON v.log_id = ls.log_id
-        AND v.session_id NOT LIKE 'auto:%'
       GROUP BY ls.log_id, ls.map, ls.title, ls.excluded, ls.last_seen
       ORDER BY ls.last_seen DESC
       LIMIT $1

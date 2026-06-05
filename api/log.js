@@ -39,22 +39,23 @@ export default async function handler(req, res) {
 
     const data = await response.json();
 
-    // Zapisz/zaktualizuj log_settings (nie blokujemy odpowiedzi)
+    // Zapisz/zaktualizuj log_settings
     const map   = data.info?.map   || '';
     const title = data.info?.title || '';
-    pool.connect().then(client => {
-      client.query(INIT_SQL)
-        .then(() => client.query(`
+    try {
+      const client2 = await pool.connect();
+      try {
+        await client2.query(INIT_SQL);
+        await client2.query(`
           INSERT INTO log_settings (log_id, map, title, last_seen)
           VALUES ($1, $2, $3, NOW())
           ON CONFLICT (log_id) DO UPDATE
             SET last_seen = NOW(),
                 map   = EXCLUDED.map,
                 title = EXCLUDED.title
-        `, [id, map, title]))
-        .catch(() => {})
-        .finally(() => client.release());
-    }).catch(() => {});
+        `, [id, map, title]);
+      } finally { client2.release(); }
+    } catch (e) { console.error('log_settings insert failed:', e.message); }
 
     res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate');
     return res.status(200).json(data);
