@@ -110,8 +110,13 @@ function PlayerRow({ p, votes, myVotes, votesLeft, votingOpen, onVote, accent })
   );
 }
 
-// Odczytaj ?admin=SECRET z URL — nie pokazuj w historii
-const ADMIN_SECRET = new URLSearchParams(window.location.search).get('admin') || '';
+const _params = new URLSearchParams(window.location.search);
+// ?admin=SECRET — panel admina
+const ADMIN_SECRET = _params.get('admin') || '';
+// ?open — bypass limitu czasowego dla wszystkich (admin udostępnia link)
+const URL_OPEN = _params.has('open');
+// ?log=ID — bezpośredni link do lobby
+const URL_LOG = _params.get('log') || '';
 
 function AdminPanel({ leaderboard, onRefresh }) {
   const [status, setStatus] = useState('');
@@ -198,7 +203,7 @@ function App() {
   const timeLimitSec = timeLimitMin * 60;
   const votingOpen = ADMIN_SECRET
     ? (bypassTimeLimit || logAge < timeLimitSec)
-    : logAge < timeLimitSec;
+    : (URL_OPEN || logAge < timeLimitSec);
   const timeLeft = Math.max(0, Math.ceil((timeLimitSec - logAge) / 60));
 
   const refreshLeaderboard = React.useCallback(() => {
@@ -209,6 +214,11 @@ function App() {
   }, []);
 
   React.useEffect(() => { refreshLeaderboard(); }, []);
+
+  // Auto-load z URL ?log=ID przy starcie
+  React.useEffect(() => {
+    if (URL_LOG) { setInput(`https://logs.tf/${URL_LOG}`); loadId(URL_LOG); }
+  }, []);
 
   const loadId = useCallback(async (id) => {
     setLoading(true); setError(''); setLogData(null);
@@ -222,6 +232,10 @@ function App() {
       } catch { setVotes({}); }
       setLogData(data); setLogId(id);
       addRecentLog(id, data.info);
+      // Zaktualizuj URL — link do udostępnienia
+      const p = new URLSearchParams(window.location.search);
+      p.set('log', id);
+      window.history.replaceState(null, '', `/?${p.toString()}`);
     } catch(e) {
       setError(e.message);
     } finally {
@@ -294,7 +308,13 @@ function App() {
     });
   }, [logId]);
 
-  const reset = () => { setLogData(null); setLogId(null); setInput(''); setVotes({}); setMyVotes([]); setError(''); };
+  const reset = () => {
+    setLogData(null); setLogId(null); setInput(''); setVotes({}); setMyVotes([]); setError(''); setResetStatus('');
+    const p = new URLSearchParams(window.location.search);
+    p.delete('log');
+    const qs = p.toString();
+    window.history.replaceState(null, '', qs ? `/?${qs}` : '/');
+  };
 
   const players = logData ? Object.entries(logData.players||{}).map(([id,p]) => ({
     id, name: logData.names?.[id] || id,
@@ -432,7 +452,7 @@ function App() {
                 <label style={{display:'flex', alignItems:'center', gap:6, fontSize:11, color:'#555', cursor:'pointer'}}>
                   <input type="checkbox" checked={bypassTimeLimit} onChange={e => setBypassTimeLimit(e.target.checked)}
                     style={{accentColor:'#f87171'}}/>
-                  bypass time limit
+                  bypass time limit (your view)
                 </label>
                 <label style={{display:'flex', alignItems:'center', gap:6, fontSize:11, color:'#555'}}>
                   window:
@@ -444,6 +464,18 @@ function App() {
                 </label>
                 {resetStatus && <span style={{fontSize:11, color:'#888'}}>{resetStatus}</span>}
               </div>
+              {logId && (() => {
+                const shareUrl = `${window.location.origin}/?log=${logId}&open`;
+                return (
+                  <div style={{marginTop:10, fontSize:11, color:'#444'}}>
+                    share link (bypasses time limit):
+                    <span
+                      onClick={() => navigator.clipboard?.writeText(shareUrl).then(() => alert('copied!'))}
+                      style={{marginLeft:6, color:'#888', cursor:'pointer', textDecoration:'underline', wordBreak:'break-all'}}
+                    >{shareUrl}</span>
+                  </div>
+                );
+              })()}
             </div>
           )}
         </div>
