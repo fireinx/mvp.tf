@@ -346,6 +346,19 @@ function App() {
   // Odśwież leaderboard gdy zmienia się aktywna zakładka
   React.useEffect(() => { refreshLeaderboard(activeTab); }, [activeTab]);
 
+  // Live polling standings — co 10s gdy lobby otwarte, co 30s po zagłosowaniu
+  React.useEffect(() => {
+    if (!logId) return;
+    const interval = votesLeft > 0 ? 10_000 : 30_000;
+    const id = setInterval(() => {
+      fetch(`/api/standings?id=${logId}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(data => { if (data) setVotes(data); })
+        .catch(() => {});
+    }, interval);
+    return () => clearInterval(id);
+  }, [logId, votesLeft]);
+
   // Auto-load z URL ?log=ID przy starcie
   React.useEffect(() => {
     if (URL_LOG) { setInput(`https://logs.tf/${URL_LOG}`); loadId(URL_LOG); }
