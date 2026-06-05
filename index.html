@@ -30,7 +30,13 @@
 <script type="text/babel">
 const { useState, useCallback } = React;
 const MAX_VOTES = 3;
-const SESSION_ID = Math.random().toString(36).slice(2, 10);
+// SESSION_ID persists across refreshes so the same browser can't vote twice
+function getSessionId() {
+  let sid = localStorage.getItem('sid');
+  if (!sid) { sid = Math.random().toString(36).slice(2, 18); localStorage.setItem('sid', sid); }
+  return sid;
+}
+const SESSION_ID = getSessionId();
 
 const CLASS_SHORT = {
   scout:'Scout', soldier:'Solly', pyro:'Pyro', demoman:'Demo',
@@ -113,9 +119,13 @@ function App() {
     setLoading(true); setError(''); setLogData(null);
     try {
       const data = await fetchLog(id);
-      const sv = storageGet(`v:${id}`) || {};
-      const sm = storageGet(`m:${id}:${SESSION_ID}`) || [];
-      setVotes(sv); setMyVotes(sm);
+      const sm = storageGet(`m:${id}`) || [];
+      setMyVotes(sm);
+      // Pobierz globalne wyniki z backendu
+      try {
+        const sr = await fetch(`/api/standings?id=${id}`);
+        setVotes(sr.ok ? await sr.json() : {});
+      } catch { setVotes({}); }
       setLogData(data); setLogId(id);
       addRecentLog(id, data.info);
     } catch(e) {
@@ -127,11 +137,22 @@ function App() {
 
   const vote = useCallback(async (steamId) => {
     if (votesLeft <= 0 || myVotes.includes(steamId)) return;
-    const nv = { ...votes, [steamId]: (votes[steamId]||0)+1 };
+    // Optimistic update
     const nm = [...myVotes, steamId];
-    setVotes(nv); setMyVotes(nm);
-    storageSet(`v:${logId}`, nv);
-    storageSet(`m:${logId}:${SESSION_ID}`, nm);
+    setMyVotes(nm);
+    storageSet(`m:${logId}`, nm);
+    try {
+      const res = await fetch('/api/vote', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ logId, steamId, sessionId: SESSION_ID }),
+      });
+      const json = await res.json();
+      if (json.standings) setVotes(json.standings);
+    } catch {
+      // Fallback: local count
+      setVotes(v => ({ ...v, [steamId]: (v[steamId]||0)+1 }));
+    }
   }, [votes, myVotes, votesLeft, logId]);
 
   const reset = () => { setLogData(null); setLogId(null); setInput(''); setVotes({}); setMyVotes([]); setError(''); };
@@ -220,7 +241,7 @@ function App() {
             </div>
           </div>
 
-          {ranked.length > 0 && (
+          {ranked.length > 0 && votesLeft === 0 && (
             <div style={{marginTop:28, paddingTop:18, borderTop:'1px solid #1e1e1e'}}>
               <div style={{fontSize:11, fontWeight:500, letterSpacing:'0.12em', color:'#333', marginBottom:10, textTransform:'uppercase'}}>standings</div>
               {ranked.map((p,i) => (
