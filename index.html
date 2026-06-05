@@ -127,12 +127,49 @@ async function adminFetch(action, extra = {}) {
   return r.json();
 }
 
-// Panel na stronie głównej: HoF players + global recent + contests
-function AdminHomePanel({ leaderboard, onRefreshLeaderboard, globalRecent, onRefreshRecent, contests, onRefreshContests, onLoadLog }) {
-  const [status, setStatus] = useState('');
+// Subkomponent: lista graczy danego rankingu z przyciskami remove
+function AdminRankingPlayers({ rows, onRemove, onClearAll, actionLabel }) {
   const [removed, setRemoved] = useState(new Set());
   const [confirmClear, setConfirmClear] = useState(false);
+  const btnR = { background:'transparent', border:'1px solid #3a1a1a', color:'#f87171', borderRadius:3, fontSize:10, padding:'2px 7px', cursor:'pointer' };
+  const btnN = { background:'transparent', border:'1px solid #2a2a2a', color:'#555', borderRadius:3, fontSize:10, padding:'2px 7px', cursor:'pointer' };
+  const visible = rows.filter(r => !removed.has(r.steam_id));
+  return (
+    <div>
+      {visible.length === 0 && <div style={{fontSize:11, color:'#333', padding:'4px 0'}}>no players yet</div>}
+      {visible.map(row => (
+        <div key={row.steam_id} style={{display:'flex', alignItems:'center', gap:8, padding:'4px 0', borderBottom:'1px solid #161616'}}>
+          <span style={{flex:1, fontSize:11, color:'#e8e8e8', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>{row.name || row.steam_id}</span>
+          <span style={{fontSize:10, color:'#555'}}>{row.total_votes}pts</span>
+          <button style={btnR} onClick={() => { setRemoved(s => new Set([...s, row.steam_id])); onRemove(row.steam_id); }}>remove</button>
+        </div>
+      ))}
+      {onClearAll && (
+        <div style={{marginTop:8}}>
+          {!confirmClear
+            ? <button style={btnR} onClick={() => setConfirmClear(true)}>{actionLabel || 'clear all'}</button>
+            : <><button style={{...btnR, background:'#7f1d1d'}} onClick={() => { onClearAll(); setConfirmClear(false); }}>confirm</button>
+               <button style={{...btnN, marginLeft:6}} onClick={() => setConfirmClear(false)}>cancel</button></>
+          }
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Panel na stronie głównej: global recent + contests + rankingi z tabami
+function AdminHomePanel({ leaderboard, onRefreshLeaderboard, globalRecent, onRefreshRecent, contests, onRefreshContests, onLoadLog }) {
+  const [status, setStatus] = useState('');
   const [newContestName, setNewContestName] = useState('');
+  const [playersTab, setPlayersTab] = useState('hof'); // 'hof' | contest.id
+  const [contestPlayers, setContestPlayers] = useState({}); // {contestId: rows[]}
+
+  const btnStyle = (danger, active) => ({
+    background: active ? (danger ? '#7f1d1d' : '#e8e8e8') : 'transparent',
+    color: active ? (danger ? '#fca5a5' : '#0f0f0f') : (danger ? '#f87171' : '#555'),
+    border: `1px solid ${active ? (danger?'#7f1d1d':'#e8e8e8') : (danger?'#3a1a1a':'#2a2a2a')}`,
+    borderRadius:3, fontSize:10, padding:'2px 7px', cursor:'pointer', flexShrink:0,
+  });
 
   const act = async (action, extra = {}) => {
     setStatus('…');
@@ -141,17 +178,25 @@ function AdminHomePanel({ leaderboard, onRefreshLeaderboard, globalRecent, onRef
       if (j.ok || j.contest) {
         setStatus('✓');
         onRefreshLeaderboard(); onRefreshRecent(); onRefreshContests();
+        // odśwież contest players jeśli jesteśmy w tym tabie
+        if (extra.contestId) fetchContestPlayers(extra.contestId);
       } else setStatus('✗ ' + (j.error || 'err'));
     } catch { setStatus('✗ network'); }
   };
 
-  const visibleLb = leaderboard.filter(r => !removed.has(r.steam_id));
+  const fetchContestPlayers = async (cid) => {
+    const r = await fetch(`/api/leaderboard?limit=50&contest=${cid}`).catch(() => null);
+    if (r?.ok) setContestPlayers(p => ({ ...p, [cid]: await r.json() }));
+  };
 
-  const btnStyle = (danger) => ({
-    background:'transparent', border:`1px solid ${danger?'#3a1a1a':'#2a2a2a'}`,
-    color: danger?'#f87171':'#555', borderRadius:3, fontSize:10,
-    padding:'2px 7px', cursor:'pointer', flexShrink:0,
-  });
+  React.useEffect(() => {
+    if (playersTab !== 'hof') fetchContestPlayers(playersTab);
+  }, [playersTab]);
+
+  // Gracze w aktualnym tabie
+  const hofRows = playersTab === 'hof' ? leaderboard : [];
+  const cRows   = playersTab !== 'hof' ? (contestPlayers[playersTab] || []) : [];
+  const rows    = playersTab === 'hof' ? hofRows : cRows;
 
   return (
     <div style={{margin:'24px 20px 0', padding:'14px', border:'1px solid #2a2a2a', borderRadius:4}}>
@@ -160,20 +205,20 @@ function AdminHomePanel({ leaderboard, onRefreshLeaderboard, globalRecent, onRef
       </div>
 
       {/* Global recent */}
-      <div style={{fontSize:10, color:'#333', textTransform:'uppercase', letterSpacing:'0.1em', marginBottom:6}}>global recent</div>
+      <div style={{fontSize:10, color:'#333', textTransform:'uppercase', letterSpacing:'0.1em', marginBottom:6}}>global recent · others</div>
       {globalRecent.length === 0 && <div style={{fontSize:11, color:'#333', marginBottom:10}}>no lobbies yet</div>}
       {globalRecent.map(r => (
         <div key={r.log_id} style={{display:'flex', alignItems:'center', gap:6, padding:'5px 0', borderBottom:'1px solid #161616', flexWrap:'wrap'}}>
           <span onClick={() => onLoadLog(r.log_id)} style={{fontSize:12, color:'#e8e8e8', cursor:'pointer', textDecoration:'underline', minWidth:60}}>#{r.log_id}</span>
           <span style={{fontSize:11, color:'#555', flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>{r.map}</span>
           <span style={{fontSize:10, color:'#333'}}>{r.vote_sessions}p · {r.total_votes}v</span>
-          <button style={btnStyle(false)} onClick={() => act('toggle_excluded', {logId: r.log_id})}>
+          <button style={btnStyle(false, r.excluded)} onClick={() => act('toggle_excluded', {logId: r.log_id})}>
             {r.excluded ? 'unexclude' : 'exclude HoF'}
           </button>
           {contests.map(c => {
             const inContest = c.logs.some(l => l.log_id === r.log_id);
             return (
-              <button key={c.id} style={btnStyle(inContest)}
+              <button key={c.id} style={btnStyle(inContest, false)}
                 onClick={() => act(inContest ? 'remove_log_from_contest' : 'add_log_to_contest', {contestId: c.id, logId: r.log_id})}>
                 {inContest ? `− ${c.name}` : `+ ${c.name}`}
               </button>
@@ -183,41 +228,48 @@ function AdminHomePanel({ leaderboard, onRefreshLeaderboard, globalRecent, onRef
       ))}
 
       {/* Contests management */}
-      <div style={{fontSize:10, color:'#333', textTransform:'uppercase', letterSpacing:'0.1em', marginTop:14, marginBottom:6}}>contests</div>
+      <div style={{fontSize:10, color:'#333', textTransform:'uppercase', letterSpacing:'0.1em', marginTop:16, marginBottom:6}}>contests</div>
       {contests.map(c => (
         <div key={c.id} style={{display:'flex', alignItems:'center', gap:6, padding:'4px 0', borderBottom:'1px solid #161616'}}>
           <span style={{flex:1, fontSize:12, color:'#e8e8e8'}}>{c.name}</span>
           <span style={{fontSize:10, color:'#333'}}>{c.logs.length} logs</span>
-          <button style={btnStyle(true)} onClick={() => { if(confirm(`Delete "${c.name}"?`)) act('delete_contest', {contestId: c.id}); }}>delete</button>
+          <button style={btnStyle(true, false)} onClick={() => { if(confirm(`Delete "${c.name}"?`)) act('delete_contest', {contestId: c.id}); }}>delete</button>
         </div>
       ))}
       <div style={{display:'flex', gap:6, marginTop:8}}>
         <input value={newContestName} onChange={e => setNewContestName(e.target.value)}
+          onKeyDown={e => e.key==='Enter' && newContestName.trim() && act('create_contest',{contestName:newContestName}).then(()=>setNewContestName(''))}
           placeholder="new contest name…"
           style={{flex:1, background:'#1a1a1a', border:'1px solid #2a2a2a', borderRadius:3, color:'#e8e8e8', fontSize:11, padding:'4px 8px', fontFamily:'inherit'}}/>
-        <button style={btnStyle(false)} onClick={async () => {
+        <button style={btnStyle(false, false)} onClick={async () => {
           if (!newContestName.trim()) return;
           await act('create_contest', {contestName: newContestName});
           setNewContestName('');
         }}>create</button>
       </div>
 
-      {/* HoF players */}
-      <div style={{fontSize:10, color:'#333', textTransform:'uppercase', letterSpacing:'0.1em', marginTop:14, marginBottom:6}}>hall of fame players</div>
-      {visibleLb.map(row => (
-        <div key={row.steam_id} style={{display:'flex', alignItems:'center', gap:8, padding:'4px 0', borderBottom:'1px solid #161616'}}>
-          <span style={{flex:1, fontSize:11, color:'#e8e8e8', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>{row.name || row.steam_id}</span>
-          <span style={{fontSize:10, color:'#555'}}>{row.total_votes}pts</span>
-          <button style={btnStyle(true)} onClick={() => { setRemoved(s => new Set([...s, row.steam_id])); act('delete_player', {steamId: row.steam_id}); }}>remove</button>
-        </div>
-      ))}
-      <div style={{marginTop:10}}>
-        {!confirmClear
-          ? <button style={btnStyle(true)} onClick={() => setConfirmClear(true)}>clear entire HoF</button>
-          : <><button style={{...btnStyle(true), background:'#7f1d1d'}} onClick={() => { act('clear_all'); setConfirmClear(false); }}>confirm clear</button>
-             <button style={{...btnStyle(false), marginLeft:6}} onClick={() => setConfirmClear(false)}>cancel</button></>
-        }
+      {/* Players tabs: HoF | każdy konkurs */}
+      <div style={{fontSize:10, color:'#333', textTransform:'uppercase', letterSpacing:'0.1em', marginTop:16, marginBottom:8}}>ranking players</div>
+      <div style={{display:'flex', gap:5, flexWrap:'wrap', marginBottom:10}}>
+        {[{id:'hof', name:'Hall of Fame'}, ...contests].map(tab => (
+          <button key={tab.id} onClick={() => setPlayersTab(String(tab.id))}
+            style={btnStyle(false, playersTab===String(tab.id))}>
+            {tab.name}
+          </button>
+        ))}
       </div>
+      <AdminRankingPlayers
+        rows={rows}
+        onRemove={steamId => {
+          if (playersTab === 'hof') {
+            act('delete_player', {steamId});
+          } else {
+            act('delete_player_from_contest', {steamId, contestId: parseInt(playersTab)});
+          }
+        }}
+        onClearAll={playersTab === 'hof' ? () => act('clear_all') : null}
+        actionLabel="clear entire HoF"
+      />
     </div>
   );
 }
@@ -423,19 +475,38 @@ function App() {
 
       {error && <p style={{margin:'10px 20px 0', fontSize:12, color:'#f87171'}}>{error}</p>}
       {!logData && !loading && !error && (() => {
-        const recent = storageGet('recent') || [];
-        return recent.length > 0 ? (
+        const myRecent = storageGet('recent') || [];
+        // Dla admina: pokaż "others" = globalRecent minus te które admin też ma lokalnie
+        const myIds = new Set(myRecent.map(r => r.id));
+        const othersRecent = ADMIN_SECRET
+          ? globalRecent.filter(r => !myIds.has(r.log_id))
+          : [];
+        const hasAny = myRecent.length > 0 || othersRecent.length > 0;
+
+        const recentRow = (id, map, onClick) => (
+          <div key={id} onClick={onClick}
+            style={{display:'flex', alignItems:'center', gap:10, padding:'7px 0', borderBottom:'1px solid #161616', cursor:'pointer'}}
+            onMouseEnter={e=>e.currentTarget.style.opacity='.7'} onMouseLeave={e=>e.currentTarget.style.opacity='1'}>
+            <span style={{fontSize:12, color:'#e8e8e8'}}>#{id}</span>
+            {map && <span style={{fontSize:11, color:'#555'}}>{map}</span>}
+            <span style={{marginLeft:'auto', fontSize:10, color:'#333'}}>→</span>
+          </div>
+        );
+
+        return hasAny ? (
           <div style={{padding:'20px 20px 0'}}>
-            <div style={{fontSize:10, fontWeight:500, letterSpacing:'0.12em', color:'#333', textTransform:'uppercase', marginBottom:8}}>recent</div>
-            {recent.map(r => (
-              <div key={r.id} onClick={() => { setInput(`https://logs.tf/${r.id}`); loadId(r.id); }}
-                style={{display:'flex', alignItems:'center', gap:10, padding:'7px 0', borderBottom:'1px solid #161616', cursor:'pointer'}}
-                onMouseEnter={e=>e.currentTarget.style.opacity='.7'} onMouseLeave={e=>e.currentTarget.style.opacity='1'}>
-                <span style={{fontSize:12, color:'#e8e8e8'}}>#{r.id}</span>
-                {r.map && <span style={{fontSize:11, color:'#555'}}>{r.map}</span>}
-                <span style={{marginLeft:'auto', fontSize:10, color:'#333'}}>→</span>
+            {myRecent.length > 0 && <>
+              <div style={{fontSize:10, fontWeight:500, letterSpacing:'0.12em', color:'#333', textTransform:'uppercase', marginBottom:8}}>
+                {ADMIN_SECRET ? 'recent · yours' : 'recent'}
               </div>
-            ))}
+              {myRecent.map(r => recentRow(r.id, r.map, () => { setInput(`https://logs.tf/${r.id}`); loadId(r.id); }))}
+            </>}
+            {othersRecent.length > 0 && <>
+              <div style={{fontSize:10, fontWeight:500, letterSpacing:'0.12em', color:'#333', textTransform:'uppercase', marginTop:12, marginBottom:8}}>
+                recent · others
+              </div>
+              {othersRecent.map(r => recentRow(r.log_id, r.map, () => { setInput(`https://logs.tf/${r.log_id}`); loadId(r.log_id); }))}
+            </>}
           </div>
         ) : <p style={{textAlign:'center', color:'#2a2a2a', fontSize:13, marginTop:40}}>paste a link from logs.tf and press GO</p>;
       })()}

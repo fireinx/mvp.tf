@@ -110,6 +110,17 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true });
     }
 
+    if (action === 'delete_player_from_contest') {
+      // Usuwa głosy gracza tylko z logów należących do danego konkursu
+      if (!steamId || !contestId) return res.status(400).json({ error: 'Missing steamId or contestId' });
+      const { rowCount } = await client.query(`
+        DELETE FROM votes
+        WHERE steam_id = $1
+          AND log_id IN (SELECT log_id FROM contest_logs WHERE contest_id = $2)
+      `, [steamId, contestId]);
+      return res.status(200).json({ ok: true, deleted: rowCount });
+    }
+
     if (action === 'remove_log_from_contest') {
       if (!contestId || !logId) return res.status(400).json({ error: 'Missing contestId or logId' });
       await client.query(
