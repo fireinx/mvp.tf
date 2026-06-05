@@ -95,7 +95,7 @@ function PlayerRow({ p, votes, myVotes, votesLeft, onVote, accent }) {
         <div style={{fontSize:10, color:'#777', marginTop:2}}>{[p.cls, `${p.k}/${p.d}`, p.dpm ? `${p.dpm}dpm` : ''].filter(Boolean).join(' · ')}</div>
       </div>
       {cnt > 0 && <span style={{fontSize:13, fontWeight:500, color:'#e8e8e8', minWidth:16, textAlign:'right'}}>{cnt}</span>}
-      <button className={`vbtn${voted ? ' voted' : ''}`} onClick={() => onVote(p.id)} disabled={!can}>
+      <button className={`vbtn${voted ? ' voted' : ''}`} onClick={() => onVote(p.id, p.name)} disabled={!can}>
         {voted ? '✓' : '+1'}
       </button>
     </div>
@@ -110,8 +110,16 @@ function App() {
   const [logId, setLogId] = useState(null);
   const [votes, setVotes] = useState({});
   const [myVotes, setMyVotes] = useState([]);
+  const [leaderboard, setLeaderboard] = useState([]);
 
   const votesLeft = MAX_VOTES - myVotes.length;
+
+  React.useEffect(() => {
+    fetch('/api/leaderboard?limit=20')
+      .then(r => r.ok ? r.json() : [])
+      .then(data => setLeaderboard(Array.isArray(data) ? data : []))
+      .catch(() => {});
+  }, []);
 
   const loadId = useCallback(async (id) => {
     setLoading(true); setError(''); setLogData(null);
@@ -138,9 +146,8 @@ function App() {
     await loadId(id);
   }, [input, loadId]);
 
-  const vote = useCallback(async (steamId) => {
+  const vote = useCallback(async (steamId, playerName) => {
     if (votesLeft <= 0 || myVotes.includes(steamId)) return;
-    // Optimistic update
     const nm = [...myVotes, steamId];
     setMyVotes(nm);
     storageSet(`m:${logId}`, nm);
@@ -148,15 +155,14 @@ function App() {
       const res = await fetch('/api/vote', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ logId, steamId, sessionId: SESSION_ID }),
+        body: JSON.stringify({ logId, steamId, sessionId: SESSION_ID, playerName: playerName || '' }),
       });
       const json = await res.json();
       if (json.standings) setVotes(json.standings);
     } catch {
-      // Fallback: local count
       setVotes(v => ({ ...v, [steamId]: (v[steamId]||0)+1 }));
     }
-  }, [votes, myVotes, votesLeft, logId]);
+  }, [myVotes, votesLeft, logId]);
 
   const reset = () => { setLogData(null); setLogId(null); setInput(''); setVotes({}); setMyVotes([]); setError(''); };
 
@@ -210,8 +216,27 @@ function App() {
               </div>
             ))}
           </div>
-        ) : <p style={{textAlign:'center', color:'#2a2a2a', fontSize:13, marginTop:56}}>paste a link from logs.tf and press GO</p>;
+        ) : <p style={{textAlign:'center', color:'#2a2a2a', fontSize:13, marginTop:40}}>paste a link from logs.tf and press GO</p>;
       })()}
+
+      {!logData && !loading && leaderboard.length > 0 && (
+        <div style={{padding:'28px 20px 0'}}>
+          <div style={{fontSize:10, fontWeight:500, letterSpacing:'0.12em', color:'#333', textTransform:'uppercase', marginBottom:8}}>leaderboard</div>
+          {leaderboard.map((row, i) => (
+            <div key={row.steam_id} style={{display:'flex', alignItems:'center', gap:10, padding:'7px 0', borderBottom:'1px solid #161616'}}>
+              <span style={{fontSize:11, color:'#2a2a2a', minWidth:18, textAlign:'right'}}>{i+1}</span>
+              <a href={`https://logs.tf/profile/${row.steam_id}`} target="_blank" rel="noopener noreferrer"
+                style={{flex:1, fontSize:13, fontWeight:500, color:'#e8e8e8', textDecoration:'none', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}
+                onMouseEnter={e=>e.target.style.textDecoration='underline'} onMouseLeave={e=>e.target.style.textDecoration='none'}>
+                {row.name || row.steam_id}
+              </a>
+              <span style={{fontSize:10, color:'#444'}}>{row.games_voted_in}g</span>
+              <span style={{fontSize:13, fontWeight:500, color:'#e8e8e8', minWidth:20, textAlign:'right'}}>{row.total_votes}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
       {loading && <p style={{textAlign:'center', color:'#333', fontSize:13, marginTop:56}}>loading…</p>}
 
       {logData && (
