@@ -47,6 +47,16 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true });
     }
 
+    if (action === 'reset_session') {
+      // Usuwa głosy konkretnej sesji z danego logu — pozwala zagłosować ponownie
+      if (!logId || !sessionId) return res.status(400).json({ error: 'Missing logId or sessionId' });
+      const { rowCount } = await client.query(
+        `DELETE FROM votes WHERE log_id = $1 AND session_id = $2`,
+        [logId, sessionId]
+      );
+      return res.status(200).json({ ok: true, deleted: rowCount });
+    }
+
     return res.status(400).json({ error: 'Unknown action' });
   } catch (err) {
     console.error(err);

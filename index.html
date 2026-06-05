@@ -221,15 +221,21 @@ function App() {
   }, [input, loadId]);
 
   const vote = useCallback(async (steamId, playerName) => {
-    if (votesLeft <= 0 || myVotes.includes(steamId)) return;
-    const nm = [...myVotes, steamId];
-    setMyVotes(nm);
-    storageSet(`m:${logId}`, nm);
+    const isAdmin = !!ADMIN_SECRET;
+    if (!isAdmin && (votesLeft <= 0 || myVotes.includes(steamId))) return;
+    if (!isAdmin) {
+      const nm = [...myVotes, steamId];
+      setMyVotes(nm);
+      storageSet(`m:${logId}`, nm);
+    }
     try {
       const res = await fetch('/api/vote', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ logId, steamId, sessionId: SESSION_ID, playerName: playerName || '' }),
+        body: JSON.stringify({
+          logId, steamId, sessionId: SESSION_ID, playerName: playerName || '',
+          ...(isAdmin ? { adminSecret: ADMIN_SECRET } : {}),
+        }),
       });
       const json = await res.json();
       if (json.standings) setVotes(json.standings);
@@ -237,6 +243,26 @@ function App() {
       setVotes(v => ({ ...v, [steamId]: (v[steamId]||0)+1 }));
     }
   }, [myVotes, votesLeft, logId]);
+
+  // Auto-głos dla medyków przy załadowaniu logu
+  React.useEffect(() => {
+    if (!logData || !logId) return;
+    const medics = Object.entries(logData.players || {})
+      .filter(([, p]) => topClass(p.class_stats) === 'Medic')
+      .map(([id]) => ({ id, name: logData.names?.[id] || '' }));
+    if (!medics.length) return;
+    const autoSession = `auto:${logId}`;
+    medics.forEach(({ id, name }) => {
+      fetch('/api/vote', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ logId, steamId: id, sessionId: autoSession, playerName: name }),
+      })
+        .then(r => r.json())
+        .then(j => { if (j.standings) setVotes(j.standings); })
+        .catch(() => {});
+    });
+  }, [logId]);
 
   const reset = () => { setLogData(null); setLogId(null); setInput(''); setVotes({}); setMyVotes([]); setError(''); };
 
@@ -329,9 +355,11 @@ function App() {
           <p style={{textAlign:'center', fontSize:11, color:'#444', marginTop:4, letterSpacing:'0.05em'}}>{logData.info?.map||''}</p>
 
           <p style={{textAlign:'center', fontSize:12, color:'#555', margin:'16px 0 20px'}}>
-            {votesLeft > 0
-              ? <><b style={{color:'#e8e8e8'}}>{votesLeft}</b> / {MAX_VOTES} votes left</>
-              : <span style={{color:'#4ade80'}}>✓ voted</span>
+            {ADMIN_SECRET
+              ? <span style={{color:'#f87171'}}>admin — unlimited votes</span>
+              : votesLeft > 0
+                ? <><b style={{color:'#e8e8e8'}}>{votesLeft}</b> / {MAX_VOTES} votes left</>
+                : <span style={{color:'#4ade80'}}>✓ voted</span>
             }
           </p>
 
@@ -347,7 +375,7 @@ function App() {
             </div>
           </div>
 
-          {ranked.length > 0 && votesLeft === 0 && (
+          {ranked.length > 0 && (votesLeft === 0 || ADMIN_SECRET) && (
             <div style={{marginTop:28, paddingTop:18, borderTop:'1px solid #1e1e1e'}}>
               <div style={{fontSize:11, fontWeight:500, letterSpacing:'0.12em', color:'#333', marginBottom:10, textTransform:'uppercase'}}>standings</div>
               {ranked.map((p,i) => (
@@ -360,6 +388,35 @@ function App() {
               ))}
             </div>
           )}
+
+          {ADMIN_SECRET && logId && (() => {
+            const [resetStatus, setResetStatus] = React.useState('');
+            async function resetLobby() {
+              setResetStatus('…');
+              // Usuń głosy tej sesji z DB
+              await fetch('/api/admin', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'reset_session', secret: ADMIN_SECRET, logId, sessionId: SESSION_ID }),
+              }).catch(() => {});
+              // Wyczyść localStorage
+              storageSet(`m:${logId}`, []);
+              setMyVotes([]);
+              // Odśwież standings
+              const sr = await fetch(`/api/standings?id=${logId}`).catch(() => null);
+              if (sr?.ok) setVotes(await sr.json());
+              setResetStatus('✓ reset');
+            }
+            return (
+              <div style={{marginTop:16, display:'flex', alignItems:'center', gap:10}}>
+                <button onClick={resetLobby}
+                  style={{background:'transparent', border:'1px solid #2a2a2a', color:'#555', borderRadius:3, fontSize:11, padding:'4px 12px', cursor:'pointer'}}>
+                  reset my votes for this lobby
+                </button>
+                {resetStatus && <span style={{fontSize:11, color:'#888'}}>{resetStatus}</span>}
+              </div>
+            );
+          })()}
         </div>
       )}
     </div>

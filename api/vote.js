@@ -1,4 +1,4 @@
-// POST /api/vote  { logId, steamId, playerName, sessionId }
+// POST /api/vote  { logId, steamId, playerName, sessionId, adminSecret? }
 
 import pkg from 'pg';
 const { Pool } = pkg;
@@ -12,7 +12,7 @@ const INIT_SQL = `
   CREATE TABLE IF NOT EXISTS votes (
     log_id      VARCHAR(10)   NOT NULL,
     steam_id    VARCHAR(25)   NOT NULL,
-    session_id  VARCHAR(30)   NOT NULL,
+    session_id  VARCHAR(50)   NOT NULL,
     player_name VARCHAR(100)  NOT NULL DEFAULT '',
     created_at  TIMESTAMPTZ   DEFAULT NOW(),
     PRIMARY KEY (log_id, steam_id, session_id)
@@ -37,22 +37,28 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  const { logId, steamId, playerName = '', sessionId } = req.body || {};
+  const { logId, steamId, playerName = '', sessionId, adminSecret } = req.body || {};
 
   if (!logId || !/^\d{4,8}$/.test(logId)) return res.status(400).json({ error: 'Invalid logId' });
   if (!steamId || !sessionId)              return res.status(400).json({ error: 'Missing fields' });
+
+  const isAdmin = adminSecret && adminSecret === process.env.ADMIN_SECRET;
+  const isAuto  = String(sessionId).startsWith('auto:');
 
   const client = await pool.connect();
   try {
     await client.query(INIT_SQL);
 
-    const { rows: check } = await client.query(
-      `SELECT COUNT(*)::int AS cnt FROM votes WHERE log_id = $1 AND session_id = $2`,
-      [logId, sessionId]
-    );
-    if (check[0].cnt >= 3) {
-      const standings = await getStandings(client, logId);
-      return res.status(200).json({ ok: false, reason: 'max_votes', standings });
+    // Limit głosów: pomijamy dla admina i auto-głosów
+    if (!isAdmin && !isAuto) {
+      const { rows: check } = await client.query(
+        `SELECT COUNT(*)::int AS cnt FROM votes WHERE log_id = $1 AND session_id = $2`,
+        [logId, sessionId]
+      );
+      if (check[0].cnt >= 3) {
+        const standings = await getStandings(client, logId);
+        return res.status(200).json({ ok: false, reason: 'max_votes', standings });
+      }
     }
 
     await client.query(
