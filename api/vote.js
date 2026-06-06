@@ -18,7 +18,20 @@ const INIT_SQL = `
     PRIMARY KEY (log_id, steam_id, session_id)
   );
   ALTER TABLE votes ADD COLUMN IF NOT EXISTS player_name VARCHAR(100) NOT NULL DEFAULT '';
+  CREATE TABLE IF NOT EXISTS session_profiles (
+    session_id VARCHAR(50) PRIMARY KEY,
+    steam_id   VARCHAR(25) UNIQUE,
+    claimed_at TIMESTAMPTZ DEFAULT NOW()
+  );
 `;
+
+// Steam3 [U:1:XXXXXXX] → Steam64 (tak jak frontend)
+function toSteam64(id) {
+  if (/^\d{17}$/.test(id)) return id;
+  const m = String(id).match(/\[U:1:(\d+)\]/);
+  if (m) return (BigInt('76561197960265728') + BigInt(m[1])).toString();
+  return id;
+}
 
 async function getStandings(client, logId) {
   const { rows } = await client.query(
@@ -49,7 +62,7 @@ export default async function handler(req, res) {
   try {
     await client.query(INIT_SQL);
 
-    // Limit głosów: pomijamy dla admina i auto-głosów
+    // Limit głosów i self-vote: pomijamy dla admina i auto-głosów
     if (!isAdmin && !isAuto) {
       const { rows: check } = await client.query(
         `SELECT COUNT(*)::int AS cnt FROM votes WHERE log_id = $1 AND session_id = $2`,
@@ -58,6 +71,17 @@ export default async function handler(req, res) {
       if (check[0].cnt >= 3) {
         const standings = await getStandings(client, logId);
         return res.status(200).json({ ok: false, reason: 'max_votes', standings });
+      }
+
+      // Blokada głosowania na siebie — sprawdzamy czy sesja ma przypisany ten profil
+      const steam64 = toSteam64(steamId);
+      const { rows: profile } = await client.query(
+        'SELECT steam_id FROM session_profiles WHERE session_id = $1',
+        [sessionId]
+      );
+      if (profile.length > 0 && profile[0].steam_id === steam64) {
+        const standings = await getStandings(client, logId);
+        return res.status(200).json({ ok: false, reason: 'self_vote', standings });
       }
     }
 

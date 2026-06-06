@@ -112,10 +112,10 @@ function useToast() {
   return { show, Toast };
 }
 
-function PlayerRow({ p, votes, myVotes, votesLeft, votingOpen, onVote, accent }) {
+function PlayerRow({ p, votes, myVotes, votesLeft, votingOpen, onVote, accent, isSelf }) {
   const voted = myVotes.includes(p.id);
   const cnt = votes[p.id] || 0;
-  const can = votingOpen && votesLeft > 0 && !voted;
+  const can = votingOpen && votesLeft > 0 && !voted && !isSelf;
   return (
     <div style={{
       display:'flex', alignItems:'center', gap:8,
@@ -125,15 +125,126 @@ function PlayerRow({ p, votes, myVotes, votesLeft, votingOpen, onVote, accent })
     }}>
       <div style={{flex:1, minWidth:0}}>
         <a href={`https://logs.tf/profile/${toSteam64(p.id)}`} target="_blank" rel="noopener noreferrer"
-          style={{fontSize:13, fontWeight:500, color:'#e8e8e8', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', display:'block', textDecoration:'none'}}
+          style={{fontSize:13, fontWeight:500, color: isSelf ? '#666' : '#e8e8e8', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', display:'block', textDecoration:'none'}}
           onMouseEnter={e=>e.target.style.textDecoration='underline'} onMouseLeave={e=>e.target.style.textDecoration='none'}
-        >{p.name}</a>
+        >{p.name}{isSelf && <span style={{fontSize:9, color:'#444', marginLeft:6, fontWeight:400}}>you</span>}</a>
         <div style={{fontSize:10, color:'#777', marginTop:2}}>{[p.cls, `${p.k}/${p.d}`, p.dpm ? `${p.dpm}dpm` : ''].filter(Boolean).join(' · ')}</div>
       </div>
       {cnt > 0 && <span style={{fontSize:13, fontWeight:500, color:'#e8e8e8', minWidth:16, textAlign:'right'}}>{cnt}</span>}
-      <button className={`vbtn${voted ? ' voted' : ''}`} onClick={() => onVote(p.id, p.name)} disabled={!can}>
+      <button className={`vbtn${voted ? ' voted' : ''}`} onClick={() => onVote(p.id, p.name)} disabled={!can}
+        title={isSelf ? 'cannot vote for yourself' : undefined}>
         {voted ? '✓' : '+1'}
       </button>
+    </div>
+  );
+}
+
+// Modal profilu — link profilu logs.tf → steam64
+function ProfileModal({ onClose, myProfile, onSave }) {
+  const [url, setUrl]       = useState('');
+  const [status, setStatus] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const parseSteamId = (input) => {
+    const m = input.trim().match(/\/profile\/(\d{17})/);
+    return m ? m[1] : null;
+  };
+
+  const save = async () => {
+    const steamId = parseSteamId(url);
+    if (!steamId) { setStatus('invalid URL — paste your logs.tf profile link'); return; }
+    setSaving(true); setStatus('saving…');
+    try {
+      const r = await fetch('/api/profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: SESSION_ID, steamId }),
+      });
+      const j = await r.json();
+      if (j.ok) {
+        const profile = { steamId };
+        storageSet('profile', profile);
+        onSave(profile);
+        setStatus('✓ saved');
+        setTimeout(onClose, 700);
+      } else if (j.reason === 'already_claimed') {
+        setStatus('this profile is already linked to another session');
+      } else {
+        setStatus('error — try again');
+      }
+    } catch {
+      setStatus('network error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const unlink = () => {
+    try { localStorage.removeItem('profile'); } catch {}
+    onSave(null);
+    onClose();
+  };
+
+  return (
+    <div onClick={e => e.target === e.currentTarget && onClose()}
+      style={{position:'fixed', inset:0, background:'rgba(0,0,0,0.75)', zIndex:200,
+        display:'flex', alignItems:'center', justifyContent:'center', padding:16}}>
+      <div style={{background:'#141414', border:'1px solid #2a2a2a', borderRadius:6,
+        padding:'20px', width:320, maxWidth:'100%'}}>
+
+        <div style={{fontSize:12, fontWeight:500, color:'#e8e8e8', marginBottom:16, letterSpacing:'0.04em'}}>
+          your profile
+        </div>
+
+        {myProfile && (
+          <div style={{marginBottom:14, padding:'8px 10px', background:'#1a1a1a', borderRadius:4, fontSize:11}}>
+            <div style={{color:'#555', marginBottom:4}}>linked profile</div>
+            <div style={{display:'flex', alignItems:'center', gap:8}}>
+              <a href={`https://logs.tf/profile/${myProfile.steamId}`} target="_blank" rel="noopener noreferrer"
+                style={{color:'#888', textDecoration:'underline', flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>
+                logs.tf/profile/{myProfile.steamId}
+              </a>
+              <button onClick={unlink}
+                style={{background:'transparent', border:'none', color:'#f87171', fontSize:10,
+                  cursor:'pointer', padding:0, flexShrink:0}}>
+                unlink
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div style={{fontSize:11, color:'#444', marginBottom:6}}>
+          {myProfile ? 'change profile:' : 'paste your logs.tf profile URL:'}
+        </div>
+        <input
+          value={url}
+          onChange={e => { setUrl(e.target.value); setStatus(''); }}
+          placeholder="https://logs.tf/profile/76561198…"
+          onKeyDown={e => e.key === 'Enter' && !saving && save()}
+          autoFocus
+        />
+        <div style={{fontSize:10, color:'#333', marginTop:5, marginBottom:10}}>
+          your Steam ID is extracted from the URL — we trust that it's you
+        </div>
+
+        {status && (
+          <div style={{fontSize:11, marginBottom:10,
+            color: status.startsWith('✓') ? '#4ade80' : '#f87171'}}>
+            {status}
+          </div>
+        )}
+
+        <div style={{display:'flex', gap:6}}>
+          <button className="btn-go" onClick={save} disabled={saving} style={{flex:1}}>
+            {saving ? '···' : 'save'}
+          </button>
+          <button onClick={onClose}
+            style={{background:'transparent', border:'1px solid #2a2a2a', borderRadius:4,
+              color:'#555', fontSize:14, padding:'10px 14px', cursor:'pointer', fontFamily:'inherit'}}>
+            ✕
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -478,6 +589,8 @@ function App() {
   const [activeTab, setActiveTab] = useState('hof'); // 'hof' | contest ID
   // Admin: reset lobby
   const [resetStatus, setResetStatus] = useState('');
+  const [myProfile, setMyProfile] = useState(() => storageGet('profile') || null);
+  const [profileOpen, setProfileOpen] = useState(false);
   const { show: showToast, Toast } = useToast();
   // Admin: time limit controls
   const [bypassTimeLimit, setBypassTimeLimit] = useState(false);
@@ -579,6 +692,8 @@ function App() {
     const isAdmin = !!ADMIN_SECRET;
     if (!votingOpen && !isAdmin) return;
     if (!isAdmin && (votesLeft <= 0 || myVotes.includes(steamId))) return;
+    // Blokada self-vote po stronie klienta (serwer też sprawdza)
+    if (!isAdmin && myProfile && toSteam64(steamId) === myProfile.steamId) return;
     if (!isAdmin) {
       const nm = [...myVotes, steamId];
       setMyVotes(nm);
@@ -658,11 +773,25 @@ function App() {
   return (
     <><div style={{maxWidth:520, margin:'0 auto', paddingBottom:48}}>
 
-      <div style={{padding:'24px 20px 12px', borderBottom:'1px solid #1e1e1e', textAlign:'center'}}>
+      <div style={{padding:'24px 20px 12px', borderBottom:'1px solid #1e1e1e', textAlign:'center', position:'relative'}}>
         <span style={{fontSize:18, fontWeight:500, color:'#e8e8e8'}}>MVP</span>
         {' '}
         <a href="https://mvp.tf" style={{fontSize:12, color:'#444', letterSpacing:'0.06em', textDecoration:'none'}}
           onMouseEnter={e=>e.target.style.color='#888'} onMouseLeave={e=>e.target.style.color='#444'}>mvp.tf</a>
+        {/* Ikonka profilu */}
+        <button onClick={() => setProfileOpen(true)} title={myProfile ? `linked: ${myProfile.steamId}` : 'link your profile'}
+          style={{position:'absolute', right:14, top:'50%', transform:'translateY(-50%)',
+            background:'transparent', border:`1px solid ${myProfile ? '#3a3a3a' : '#222'}`,
+            borderRadius:'50%', width:28, height:28, cursor:'pointer',
+            color: myProfile ? '#888' : '#333', display:'flex', alignItems:'center',
+            justifyContent:'center', padding:0, transition:'border-color .15s, color .15s'}}
+          onMouseEnter={e=>{e.currentTarget.style.borderColor='#555';e.currentTarget.style.color='#aaa'}}
+          onMouseLeave={e=>{e.currentTarget.style.borderColor=myProfile?'#3a3a3a':'#222';e.currentTarget.style.color=myProfile?'#888':'#333'}}>
+          <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+            <circle cx="7" cy="5" r="2.5"/>
+            <path d="M1.5 13c0-3 2.5-5 5.5-5s5.5 2 5.5 5"/>
+          </svg>
+        </button>
       </div>
 
       <div style={{display:'flex', gap:8, padding:'18px 20px 0'}}>
@@ -803,12 +932,12 @@ function App() {
           <div style={{display:'flex', gap:0}}>
             <div style={{flex:1, minWidth:0}}>
               <div style={{fontSize:11, fontWeight:500, letterSpacing:'0.12em', color:'#378ADD', textAlign:'center', marginBottom:10}}>BLU</div>
-              {blu.map(p => <PlayerRow key={p.id} p={p} votes={votes} myVotes={myVotes} votesLeft={ADMIN_SECRET ? 99 : votesLeft} votingOpen={votingOpen || !!ADMIN_SECRET} onVote={vote} accent="#378ADD"/>)}
+              {blu.map(p => <PlayerRow key={p.id} p={p} votes={votes} myVotes={myVotes} votesLeft={ADMIN_SECRET ? 99 : votesLeft} votingOpen={votingOpen || !!ADMIN_SECRET} onVote={vote} accent="#378ADD" isSelf={!ADMIN_SECRET && !!myProfile && toSteam64(p.id) === myProfile.steamId}/>)}
             </div>
             <div style={{width:1, background:'#1e1e1e', margin:'0 14px'}}/>
             <div style={{flex:1, minWidth:0}}>
               <div style={{fontSize:11, fontWeight:500, letterSpacing:'0.12em', color:'#E24B4A', textAlign:'center', marginBottom:10}}>RED</div>
-              {red.map(p => <PlayerRow key={p.id} p={p} votes={votes} myVotes={myVotes} votesLeft={ADMIN_SECRET ? 99 : votesLeft} votingOpen={votingOpen || !!ADMIN_SECRET} onVote={vote} accent="#E24B4A"/>)}
+              {red.map(p => <PlayerRow key={p.id} p={p} votes={votes} myVotes={myVotes} votesLeft={ADMIN_SECRET ? 99 : votesLeft} votingOpen={votingOpen || !!ADMIN_SECRET} onVote={vote} accent="#E24B4A" isSelf={!ADMIN_SECRET && !!myProfile && toSteam64(p.id) === myProfile.steamId}/>)}
             </div>
           </div>
 
@@ -898,7 +1027,9 @@ function App() {
           )}
         </div>
       )}
-    </div>{Toast}</>
+    </div>{Toast}
+    {profileOpen && <ProfileModal onClose={() => setProfileOpen(false)} myProfile={myProfile} onSave={setMyProfile}/>}
+    </>
   );
 }
 
