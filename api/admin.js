@@ -144,6 +144,41 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true });
     }
 
+    if (action === 'fix_missing_names') {
+      // Dla każdego steam_id bez nazwy — znajdź log i uzupełnij
+      const { rows: nameless } = await client.query(`
+        SELECT DISTINCT steam_id FROM votes WHERE player_name = '' OR player_name IS NULL LIMIT 100
+      `);
+      if (!nameless.length) return res.status(200).json({ ok: true, fixed: 0 });
+
+      let fixed = 0;
+      for (const { steam_id } of nameless) {
+        const { rows: logs } = await client.query(
+          `SELECT DISTINCT log_id FROM votes WHERE steam_id=$1 LIMIT 3`, [steam_id]
+        );
+        let found = false;
+        for (const { log_id } of logs) {
+          try {
+            const r = await fetch(`https://logs.tf/api/v1/log/${log_id}`,
+              { headers: { 'User-Agent': 'mvp.tf/1.0' } });
+            if (!r.ok) continue;
+            const data = await r.json();
+            const name = data.names?.[steam_id];
+            if (name) {
+              await client.query(
+                `UPDATE votes SET player_name=$1 WHERE steam_id=$2 AND (player_name='' OR player_name IS NULL)`,
+                [name.slice(0, 100), steam_id]
+              );
+              fixed++;
+              found = true;
+              break;
+            }
+          } catch {}
+        }
+      }
+      return res.status(200).json({ ok: true, fixed, total: nameless.length });
+    }
+
     if (action === 'create_map_poll') {
       await client.query(`
         CREATE TABLE IF NOT EXISTS map_polls (

@@ -41,12 +41,26 @@ export default async function handler(req, res) {
     const { rows: polls } = await client.query(
       `SELECT * FROM map_polls WHERE active=TRUE ORDER BY created_at DESC LIMIT 1`
     );
-    if (!polls.length) return res.status(200).json({ poll: null, votes: {} });
+    if (req.method === 'GET') {
+      const activePoll = polls[0] || null;
+
+      // Poprzedni (ostatni nieaktywny) poll z wynikami
+      const { rows: prevPolls } = await client.query(
+        `SELECT * FROM map_polls WHERE active=FALSE ORDER BY created_at DESC LIMIT 1`
+      );
+      const prevPoll = prevPolls[0] || null;
+
+      return res.status(200).json({
+        poll: activePoll,
+        votes: activePoll ? await getCounts(client, activePoll.id) : {},
+        prevPoll,
+        prevVotes: prevPoll ? await getCounts(client, prevPoll.id) : {},
+      });
+    }
+
+    if (!polls.length) return res.status(200).json({ poll: null, votes: {}, prevPoll: null, prevVotes: {} });
     const poll = polls[0];
 
-    if (req.method === 'GET') {
-      return res.status(200).json({ poll, votes: await getCounts(client, poll.id) });
-    }
 
     if (req.method === 'POST') {
       const { sessionId, mapName } = req.body || {};

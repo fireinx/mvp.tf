@@ -265,6 +265,12 @@ function AdminHomePanel({ leaderboard, onRefreshLeaderboard, globalRecent, onRef
         new map poll
       </button>
 
+      {/* Maintenance */}
+      <div style={{fontSize:10, color:'#333', textTransform:'uppercase', letterSpacing:'0.1em', marginTop:16, marginBottom:6}}>maintenance</div>
+      <button style={btnStyle(false, false)} onClick={() => act('fix_missing_names')}>
+        fix missing player names
+      </button>
+
       {/* Contests management */}
       <div style={{fontSize:10, color:'#333', textTransform:'uppercase', letterSpacing:'0.1em', marginTop:16, marginBottom:6}}>contests</div>
       {contests.map(c => (
@@ -317,15 +323,23 @@ function AdminHomePanel({ leaderboard, onRefreshLeaderboard, globalRecent, onRef
 }
 
 function MapPoll() {
-  const [poll, setPoll]     = useState(null);
-  const [votes, setVotes]   = useState({});
-  const [myVote, setMyVote] = useState(null);
-  const [ready, setReady]   = useState(false);
+  const [poll, setPoll]         = useState(null);
+  const [votes, setVotes]       = useState({});
+  const [prevPoll, setPrevPoll] = useState(null);
+  const [prevVotes, setPrevVotes] = useState({});
+  const [myVote, setMyVote]     = useState(null);
+  const [ready, setReady]       = useState(false);
 
   const load = React.useCallback(() => {
     fetch('/api/map-poll')
       .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d) { setPoll(d.poll); setVotes(d.votes || {}); } setReady(true); })
+      .then(d => {
+        if (d) {
+          setPoll(d.poll); setVotes(d.votes || {});
+          setPrevPoll(d.prevPoll || null); setPrevVotes(d.prevVotes || {});
+        }
+        setReady(true);
+      })
       .catch(() => setReady(true));
   }, []);
 
@@ -354,7 +368,7 @@ function MapPoll() {
     }
   };
 
-  if (!ready || !poll) return null;
+  if (!ready || (!poll && !prevPoll)) return null;
 
   const total = Object.values(votes).reduce((a, b) => a + b, 0);
   const mode  = m => m.startsWith('pl_') ? 'pl' : m.startsWith('koth_') ? 'koth' : 'cp';
@@ -387,6 +401,36 @@ function MapPoll() {
           </div>
         );
       })}
+
+      {/* Poprzedni poll */}
+      {prevPoll && (() => {
+        const prevTotal = Object.values(prevVotes).reduce((a,b) => a+b, 0);
+        const winner = prevTotal > 0
+          ? prevPoll.maps.reduce((a, b) => (prevVotes[b]||0) > (prevVotes[a]||0) ? b : a)
+          : null;
+        return (
+          <div style={{marginTop:14, paddingTop:12, borderTop:'1px solid #161616'}}>
+            <div style={{fontSize:10, color:'#2a2a2a', textTransform:'uppercase', letterSpacing:'0.1em', marginBottom:6}}>
+              last poll · {prevTotal} votes
+            </div>
+            {prevPoll.maps.map(map => {
+              const cnt  = prevVotes[map] || 0;
+              const pct  = prevTotal > 0 ? Math.round(cnt / prevTotal * 100) : 0;
+              const isWinner = map === winner;
+              return (
+                <div key={map} style={{display:'flex', alignItems:'center', gap:8, padding:'4px 0',
+                  opacity: isWinner ? 1 : 0.4,
+                  borderLeft: isWinner ? '2px solid #333' : '2px solid transparent',
+                  paddingLeft: isWinner ? 6 : 8}}>
+                  <span style={{fontSize:10, color:'#2a2a2a', minWidth:30}}>{mode(map)}</span>
+                  <span style={{flex:1, fontSize:11, color: isWinner ? '#888' : '#444'}}>{map}</span>
+                  <span style={{fontSize:10, color:'#333'}}>{pct}%</span>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
     </div>
   );
 }
