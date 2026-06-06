@@ -155,6 +155,27 @@ async function adminFetch(action, extra = {}) {
   return r.json();
 }
 
+const COLLAPSED_LIMIT = 10;
+
+// Zwijana lista — pokazuje N pozycji, reszta ukryta
+function CollapsibleList({ items, renderItem, label = 'player' }) {
+  const [expanded, setExpanded] = useState(false);
+  const visible = expanded ? items : items.slice(0, COLLAPSED_LIMIT);
+  const hidden  = items.length - COLLAPSED_LIMIT;
+  return (
+    <>
+      {visible.map(renderItem)}
+      {items.length > COLLAPSED_LIMIT && (
+        <div onClick={() => setExpanded(e => !e)}
+          style={{fontSize:10, color:'#333', padding:'6px 0', cursor:'pointer', userSelect:'none'}}
+          onMouseEnter={e=>e.target.style.color='#666'} onMouseLeave={e=>e.target.style.color='#333'}>
+          {expanded ? '↑ show less' : `↓ ${hidden} more ${label}s`}
+        </div>
+      )}
+    </>
+  );
+}
+
 // Subkomponent: lista graczy danego rankingu z przyciskami remove
 function AdminRankingPlayers({ rows, onRemove, onClearAll, actionLabel }) {
   const [removed, setRemoved] = useState(new Set());
@@ -165,13 +186,17 @@ function AdminRankingPlayers({ rows, onRemove, onClearAll, actionLabel }) {
   return (
     <div>
       {visible.length === 0 && <div style={{fontSize:11, color:'#333', padding:'4px 0'}}>no players yet</div>}
-      {visible.map(row => (
-        <div key={row.steam_id} style={{display:'flex', alignItems:'center', gap:8, padding:'4px 0', borderBottom:'1px solid #161616'}}>
-          <span style={{flex:1, fontSize:11, color:'#e8e8e8', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>{row.name || row.steam_id}</span>
-          <span style={{fontSize:10, color:'#555'}}>{row.total_votes}pts</span>
-          <button style={btnR} onClick={() => { setRemoved(s => new Set([...s, row.steam_id])); onRemove(row.steam_id); }}>remove</button>
-        </div>
-      ))}
+      <CollapsibleList
+        items={visible}
+        label="player"
+        renderItem={row => (
+          <div key={row.steam_id} style={{display:'flex', alignItems:'center', gap:8, padding:'4px 0', borderBottom:'1px solid #161616'}}>
+            <span style={{flex:1, fontSize:11, color:'#e8e8e8', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>{row.name || row.steam_id}</span>
+            <span style={{fontSize:10, color:'#555'}}>{row.total_votes}pts</span>
+            <button style={btnR} onClick={() => { setRemoved(s => new Set([...s, row.steam_id])); onRemove(row.steam_id); }}>remove</button>
+          </div>
+        )}
+      />
       {onClearAll && (
         <div style={{marginTop:8}}>
           {!confirmClear
@@ -370,11 +395,12 @@ function MapPoll() {
 
   if (!ready || (!poll && !prevPoll)) return null;
 
-  const total = Object.values(votes).reduce((a, b) => a + b, 0);
+  const total = poll ? Object.values(votes).reduce((a, b) => a + b, 0) : 0;
   const mode  = m => m.startsWith('pl_') ? 'pl' : m.startsWith('koth_') ? 'koth' : 'cp';
 
   return (
     <div style={{padding:'20px 20px 0'}}>
+      {poll && <>
       <div style={{fontSize:10, fontWeight:500, letterSpacing:'0.12em', color:'#333', textTransform:'uppercase', marginBottom:8}}>
         next map{total > 0 ? <span style={{fontWeight:400}}> · {total} {total===1?'vote':'votes'}</span> : ''}
       </div>
@@ -401,6 +427,7 @@ function MapPoll() {
           </div>
         );
       })}
+      </>}
 
       {/* Poprzedni poll */}
       {prevPoll && (() => {
@@ -714,18 +741,22 @@ function App() {
               <div style={{fontSize:10, fontWeight:500, letterSpacing:'0.12em', color:'#333', textTransform:'uppercase', marginBottom:8}}>
                 {activeTab === 'hof' ? 'hall of fame' : contests.find(c=>c.id==activeTab)?.name || ''}
               </div>
-              {leaderboard.map((row, i) => (
-                <div key={row.steam_id} style={{display:'flex', alignItems:'center', gap:10, padding:'7px 0', borderBottom:'1px solid #161616'}}>
-                  <span style={{fontSize:11, color:'#2a2a2a', minWidth:18, textAlign:'right'}}>{i+1}</span>
-                  <a href={`https://logs.tf/profile/${toSteam64(row.steam_id)}`} target="_blank" rel="noopener noreferrer"
-                    style={{flex:1, fontSize:13, fontWeight:500, color:'#e8e8e8', textDecoration:'none', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}
-                    onMouseEnter={e=>e.target.style.textDecoration='underline'} onMouseLeave={e=>e.target.style.textDecoration='none'}>
-                    {row.name || row.steam_id}
-                  </a>
-                  <span style={{fontSize:10, color:'#444'}}>{row.games_voted_in}g</span>
-                  <span style={{fontSize:13, fontWeight:500, color:'#e8e8e8', minWidth:20, textAlign:'right'}}>{row.total_votes}</span>
-                </div>
-              ))}
+              <CollapsibleList
+                items={leaderboard}
+                label="player"
+                renderItem={(row, i) => (
+                  <div key={row.steam_id} style={{display:'flex', alignItems:'center', gap:10, padding:'7px 0', borderBottom:'1px solid #161616'}}>
+                    <span style={{fontSize:11, color:'#2a2a2a', minWidth:18, textAlign:'right'}}>{leaderboard.indexOf(row)+1}</span>
+                    <a href={`https://logs.tf/profile/${toSteam64(row.steam_id)}`} target="_blank" rel="noopener noreferrer"
+                      style={{flex:1, fontSize:13, fontWeight:500, color:'#e8e8e8', textDecoration:'none', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}
+                      onMouseEnter={e=>e.target.style.textDecoration='underline'} onMouseLeave={e=>e.target.style.textDecoration='none'}>
+                      {row.name || row.steam_id}
+                    </a>
+                    <span style={{fontSize:10, color:'#444'}}>{row.games_voted_in}g</span>
+                    <span style={{fontSize:13, fontWeight:500, color:'#e8e8e8', minWidth:20, textAlign:'right'}}>{row.total_votes}</span>
+                  </div>
+                )}
+              />
             </>
           ) : (
             <p style={{textAlign:'center', color:'#2a2a2a', fontSize:13, marginTop:20}}>no votes yet</p>
