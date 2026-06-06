@@ -144,6 +144,52 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true });
     }
 
+    if (action === 'create_map_poll') {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS map_polls (
+          id SERIAL PRIMARY KEY, maps TEXT[] NOT NULL,
+          active BOOLEAN NOT NULL DEFAULT TRUE, created_at TIMESTAMPTZ DEFAULT NOW()
+        );
+        CREATE TABLE IF NOT EXISTS map_votes (
+          poll_id INT NOT NULL, session_id VARCHAR(30) NOT NULL,
+          map_name VARCHAR(80) NOT NULL, PRIMARY KEY (poll_id, session_id)
+        );
+      `);
+
+      const MAP_POOL = {
+        payload: ['pl_upward_f12','pl_vigil_rc10','pl_problitz_rc2','pl_borneo_f2',
+                  'pl_cornwater_b8d','pl_prowater_b12','pl_swiftwater_final1','pl_summercoast_rc8e'],
+        koth:    ['koth_product_final','koth_warmtic_f10','koth_cascade_rc2','koth_proplant_v8',
+                  'koth_ashville_final1','koth_coalplant_b8','koth_proot_b6b','koth_daenam_b12','koth_proside_v1'],
+        cp:      ['cp_steel_f12','cp_gullywash_f9','cp_process_f12','cp_propaganda_b19'],
+      };
+
+      // Pobierz mapy z poprzedniego poll (x-1), żeby nie powtarzać
+      const { rows: prev } = await client.query(
+        `SELECT maps FROM map_polls ORDER BY created_at DESC LIMIT 1`
+      );
+      const exclude = prev.length ? prev[0].maps : [];
+
+      function pickRandom(pool) {
+        const avail = pool.filter(m => !exclude.includes(m));
+        const src   = avail.length ? avail : pool; // fallback jeśli wszystkie wykluczone
+        return src[Math.floor(Math.random() * src.length)];
+      }
+
+      const maps = [
+        pickRandom(MAP_POOL.payload),
+        pickRandom(MAP_POOL.koth),
+        pickRandom(MAP_POOL.cp),
+      ];
+
+      // Dezaktywuj obecny poll
+      await client.query(`UPDATE map_polls SET active=FALSE WHERE active=TRUE`);
+      const { rows } = await client.query(
+        `INSERT INTO map_polls (maps) VALUES ($1) RETURNING *`, [maps]
+      );
+      return res.status(200).json({ ok: true, poll: rows[0] });
+    }
+
     return res.status(400).json({ error: 'Unknown action' });
   } catch (err) {
     console.error(err);
