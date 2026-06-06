@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="pl">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -81,8 +81,35 @@ function storageSet(key, val) {
 function addRecentLog(id, info) {
   const list = storageGet('recent') || [];
   const filtered = list.filter(x => x.id !== id);
-  filtered.unshift({ id, map: info?.map || '', title: info?.title || '' });
+  filtered.unshift({ id, map: info?.map || '', title: info?.title || '', ts: Date.now() });
   storageSet('recent', filtered.slice(0, 5));
+}
+
+function timeAgo(ts) {
+  if (!ts) return '';
+  const min = Math.floor((Date.now() - ts) / 60000);
+  if (min < 1)  return 'just now';
+  if (min < 60) return `${min}m ago`;
+  const h = Math.floor(min / 60);
+  if (h < 24)   return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
+// Toast — mały komunikat zamiast alert()
+function useToast() {
+  const [msg, setMsg] = useState('');
+  const show = (text, ms = 2000) => {
+    setMsg(text);
+    setTimeout(() => setMsg(''), ms);
+  };
+  const Toast = msg ? (
+    <div style={{position:'fixed', bottom:24, left:'50%', transform:'translateX(-50%)',
+      background:'#1a1a1a', border:'1px solid #2a2a2a', borderRadius:4,
+      color:'#e8e8e8', fontSize:12, padding:'8px 16px', pointerEvents:'none', zIndex:999}}>
+      {msg}
+    </div>
+  ) : null;
+  return { show, Toast };
 }
 
 function PlayerRow({ p, votes, myVotes, votesLeft, votingOpen, onVote, accent }) {
@@ -380,6 +407,7 @@ function App() {
   const [activeTab, setActiveTab] = useState('hof'); // 'hof' | contest ID
   // Admin: reset lobby
   const [resetStatus, setResetStatus] = useState('');
+  const { show: showToast, Toast } = useToast();
   // Admin: time limit controls
   const [bypassTimeLimit, setBypassTimeLimit] = useState(false);
   const [timeLimitMin, setTimeLimitMin] = useState(DEFAULT_LIMIT_MIN);
@@ -458,6 +486,7 @@ function App() {
       } catch { setVotes({}); }
       setLogData(data); setLogId(id);
       addRecentLog(id, data.info);
+      document.title = `MVP · ${data.info?.map || id}`;
       // Zaktualizuj URL — link do udostępnienia
       const p = new URLSearchParams(window.location.search);
       p.set('log', id);
@@ -536,6 +565,7 @@ function App() {
 
   const reset = () => {
     setLogData(null); setLogId(null); setInput(''); setVotes({}); setMyVotes([]); setError(''); setResetStatus('');
+    document.title = 'MVP · mvp.tf';
     const p = new URLSearchParams(window.location.search);
     p.delete('log');
     const qs = p.toString();
@@ -586,13 +616,14 @@ function App() {
           : [];
         const hasAny = myRecent.length > 0 || othersRecent.length > 0;
 
-        const recentRow = (id, map, onClick) => (
+        const recentRow = (id, map, onClick, ts) => (
           <div key={id} onClick={onClick}
             style={{display:'flex', alignItems:'center', gap:10, padding:'7px 0', borderBottom:'1px solid #161616', cursor:'pointer'}}
             onMouseEnter={e=>e.currentTarget.style.opacity='.7'} onMouseLeave={e=>e.currentTarget.style.opacity='1'}>
             <span style={{fontSize:12, color:'#e8e8e8'}}>#{id}</span>
-            {map && <span style={{fontSize:11, color:'#555'}}>{map}</span>}
-            <span style={{marginLeft:'auto', fontSize:10, color:'#333'}}>→</span>
+            {map && <span style={{fontSize:11, color:'#555', flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>{map}</span>}
+            {ts && <span style={{fontSize:10, color:'#333', flexShrink:0}}>{timeAgo(ts)}</span>}
+            {!ts && <span style={{marginLeft:'auto', fontSize:10, color:'#333'}}>→</span>}
           </div>
         );
 
@@ -602,13 +633,13 @@ function App() {
               <div style={{fontSize:10, fontWeight:500, letterSpacing:'0.12em', color:'#333', textTransform:'uppercase', marginBottom:8}}>
                 {ADMIN_SECRET ? 'recent · yours' : 'recent'}
               </div>
-              {myRecent.map(r => recentRow(r.id, r.map, () => { setInput(`https://logs.tf/${r.id}`); loadId(r.id); }))}
+              {myRecent.map(r => recentRow(r.id, r.map, () => { setInput(`https://logs.tf/${r.id}`); loadId(r.id); }, r.ts))}
             </>}
             {othersRecent.length > 0 && <>
               <div style={{fontSize:10, fontWeight:500, letterSpacing:'0.12em', color:'#333', textTransform:'uppercase', marginTop:12, marginBottom:8}}>
                 recent · others
               </div>
-              {othersRecent.map(r => recentRow(r.log_id, r.map, () => { setInput(`https://logs.tf/${r.log_id}`); loadId(r.log_id); }))}
+              {othersRecent.map(r => recentRow(r.log_id, r.map, () => { setInput(`https://logs.tf/${r.log_id}`); loadId(r.log_id); }, new Date(r.last_seen).getTime()))}
             </>}
           </div>
         ) : <p style={{textAlign:'center', color:'#2a2a2a', fontSize:13, marginTop:40}}>paste a link from logs.tf and press GO</p>;
@@ -706,7 +737,7 @@ function App() {
             </div>
           </div>
 
-          {ranked.length > 0 && (votesLeft === 0 || ADMIN_SECRET) && (
+          {ranked.length > 0 && (votesLeft === 0 || !votingOpen || ADMIN_SECRET) && (
             <div style={{marginTop:28, paddingTop:18, borderTop:'1px solid #1e1e1e'}}>
               <div style={{fontSize:11, fontWeight:500, letterSpacing:'0.12em', color:'#333', marginBottom:10, textTransform:'uppercase'}}>standings</div>
               {ranked.map((p,i) => (
@@ -783,7 +814,7 @@ function App() {
               {/* Share link */}
               <div style={{marginTop:8, fontSize:11, color:'#444'}}>
                 share link:
-                <span onClick={() => { const u=`${window.location.origin}/?log=${logId}&open`; navigator.clipboard?.writeText(u).then(()=>alert('copied!')); }}
+                <span onClick={() => { const u=`${window.location.origin}/?log=${logId}&open`; navigator.clipboard?.writeText(u).then(()=>showToast('✓ link copied')); }}
                   style={{marginLeft:6, color:'#888', cursor:'pointer', textDecoration:'underline', wordBreak:'break-all'}}>
                   {window.location.origin}/?log={logId}&open
                 </span>
@@ -793,6 +824,7 @@ function App() {
         </div>
       )}
     </div>
+    {Toast}
   );
 }
 
