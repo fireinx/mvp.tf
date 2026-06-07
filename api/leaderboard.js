@@ -28,16 +28,35 @@ export default async function handler(req, res) {
     `);
     let query, params;
 
+    // Upewnij się że log_players istnieje
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS log_players (
+        log_id      VARCHAR(10)  NOT NULL,
+        steam_id    VARCHAR(25)  NOT NULL,
+        player_name VARCHAR(100) NOT NULL DEFAULT '',
+        PRIMARY KEY (log_id, steam_id)
+      )
+    `);
+
     if (contestId) {
-      // Ranking konkursowy — tylko logi z danego konkursu
+      // Ranking konkursowy — głosy z logów danego konkursu
+      // games_played = logi w konkursie gdzie gracz był obecny (log_players)
       query = `
         SELECT
           v.steam_id,
-          (SELECT player_name FROM votes v2
-           WHERE v2.steam_id = v.steam_id AND player_name <> ''
-           ORDER BY created_at DESC LIMIT 1)    AS name,
-          COUNT(*)::int                          AS total_votes,
-          COUNT(DISTINCT v.log_id)::int          AS games_voted_in
+          COALESCE(
+            (SELECT lp.player_name FROM log_players lp
+             WHERE lp.steam_id = v.steam_id AND lp.player_name <> ''
+             LIMIT 1),
+            (SELECT v2.player_name FROM votes v2
+             WHERE v2.steam_id = v.steam_id AND v2.player_name <> ''
+             ORDER BY v2.created_at DESC LIMIT 1)
+          )                                        AS name,
+          COUNT(*)::int                            AS total_votes,
+          (SELECT COUNT(DISTINCT lp.log_id)::int
+           FROM log_players lp
+           INNER JOIN contest_logs cl2 ON cl2.log_id = lp.log_id AND cl2.contest_id = $2
+           WHERE lp.steam_id = v.steam_id)         AS games_voted_in
         FROM votes v
         INNER JOIN contest_logs cl ON cl.log_id = v.log_id AND cl.contest_id = $2
         WHERE NOT EXISTS (
@@ -54,11 +73,20 @@ export default async function handler(req, res) {
       query = `
         SELECT
           v.steam_id,
-          (SELECT player_name FROM votes v2
-           WHERE v2.steam_id = v.steam_id AND player_name <> ''
-           ORDER BY created_at DESC LIMIT 1)    AS name,
-          COUNT(*)::int                          AS total_votes,
-          COUNT(DISTINCT v.log_id)::int          AS games_voted_in
+          COALESCE(
+            (SELECT lp.player_name FROM log_players lp
+             WHERE lp.steam_id = v.steam_id AND lp.player_name <> ''
+             LIMIT 1),
+            (SELECT v2.player_name FROM votes v2
+             WHERE v2.steam_id = v.steam_id AND v2.player_name <> ''
+             ORDER BY v2.created_at DESC LIMIT 1)
+          )                                        AS name,
+          COUNT(*)::int                            AS total_votes,
+          (SELECT COUNT(DISTINCT lp.log_id)::int
+           FROM log_players lp
+           LEFT JOIN log_settings ls2 ON ls2.log_id = lp.log_id
+           WHERE lp.steam_id = v.steam_id
+             AND (ls2.excluded IS NULL OR ls2.excluded = FALSE)) AS games_voted_in
         FROM votes v
         LEFT JOIN log_settings ls ON ls.log_id = v.log_id
         WHERE (ls.excluded IS NULL OR ls.excluded = FALSE)

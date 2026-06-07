@@ -16,7 +16,18 @@ const INIT_SQL = `
     excluded  BOOLEAN      NOT NULL DEFAULT FALSE,
     first_seen TIMESTAMPTZ DEFAULT NOW(),
     last_seen  TIMESTAMPTZ DEFAULT NOW()
-  )
+  );
+  CREATE TABLE IF NOT EXISTS log_players (
+    log_id      VARCHAR(10)  NOT NULL,
+    steam_id    VARCHAR(25)  NOT NULL,
+    player_name VARCHAR(100) NOT NULL DEFAULT '',
+    PRIMARY KEY (log_id, steam_id)
+  );
+  -- Migracja: uzupełnij log_players z głosów które już mamy
+  INSERT INTO log_players (log_id, steam_id, player_name)
+  SELECT DISTINCT log_id, steam_id, COALESCE(NULLIF(player_name,''), steam_id)
+  FROM votes
+  ON CONFLICT DO NOTHING;
 `;
 
 export default async function handler(req, res) {
@@ -54,6 +65,16 @@ export default async function handler(req, res) {
                 map   = EXCLUDED.map,
                 title = EXCLUDED.title
         `, [id, map, title]);
+        // Zapisz wszystkich uczestników meczu
+        const players = Object.entries(data.players || {});
+        for (const [steamId] of players) {
+          const name = (data.names?.[steamId] || '').slice(0, 100);
+          await client2.query(`
+            INSERT INTO log_players (log_id, steam_id, player_name)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (log_id, steam_id) DO UPDATE SET player_name = EXCLUDED.player_name
+          `, [id, steamId, name]);
+        }
       } finally { client2.release(); }
     } catch (e) { console.error('log_settings insert failed:', e.message); }
 
