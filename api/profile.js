@@ -1,4 +1,4 @@
-// GET  /api/profile?sessionId=X  → { steam_id } | { steam_id: null }
+// GET  /api/profile?sessionId=X  → { steam_id, is_admin } | { steam_id: null, is_admin: false }
 // POST /api/profile { sessionId, steamId } → { ok: true } | { ok: false, reason: 'already_claimed' }
 
 import pkg from 'pg';
@@ -14,6 +14,10 @@ const INIT_SQL = `
     session_id VARCHAR(50) PRIMARY KEY,
     steam_id   VARCHAR(25) UNIQUE,
     claimed_at TIMESTAMPTZ DEFAULT NOW()
+  );
+  CREATE TABLE IF NOT EXISTS admin_profiles (
+    steam_id VARCHAR(25) PRIMARY KEY,
+    added_at TIMESTAMPTZ DEFAULT NOW()
   );
 `;
 
@@ -32,10 +36,16 @@ export default async function handler(req, res) {
       const { sessionId } = req.query;
       if (!sessionId) return res.status(400).json({ error: 'Missing sessionId' });
       const { rows } = await client.query(
-        'SELECT steam_id FROM session_profiles WHERE session_id = $1',
+        `SELECT sp.steam_id, (ap.steam_id IS NOT NULL) AS is_admin
+         FROM session_profiles sp
+         LEFT JOIN admin_profiles ap ON ap.steam_id = sp.steam_id
+         WHERE sp.session_id = $1`,
         [sessionId]
       );
-      return res.status(200).json({ steam_id: rows[0]?.steam_id ?? null });
+      return res.status(200).json({
+        steam_id: rows[0]?.steam_id ?? null,
+        is_admin: rows[0]?.is_admin ?? false,
+      });
     }
 
     // POST — przypisz profil do sesji (first-come na steam_id)

@@ -1,7 +1,9 @@
 // POST /api/admin  { action, secret, ...params }
+// lub auth przez profil: { action, sessionId, adminSteamId, ...params }
 
 import pkg from 'pg';
 const { Pool } = pkg;
+import { createNewPoll } from './map-poll.js';
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -9,6 +11,15 @@ const pool = new Pool({
 });
 
 const CONTEST_INIT = `
+  CREATE TABLE IF NOT EXISTS admin_profiles (
+    steam_id VARCHAR(25) PRIMARY KEY,
+    added_at TIMESTAMPTZ DEFAULT NOW()
+  );
+  CREATE TABLE IF NOT EXISTS session_profiles (
+    session_id VARCHAR(50) PRIMARY KEY,
+    steam_id   VARCHAR(25) UNIQUE,
+    claimed_at TIMESTAMPTZ DEFAULT NOW()
+  );
   CREATE TABLE IF NOT EXISTS contests (
     id SERIAL PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
@@ -34,6 +45,21 @@ const CONTEST_INIT = `
   );
 `;
 
+// Sprawdza autoryzację: URL secret LUB profil admina
+async function checkAuth(client, body) {
+  const { secret, sessionId: sid, adminSteamId } = body || {};
+  if (secret && secret === process.env.ADMIN_SECRET) return true;
+  if (sid && adminSteamId) {
+    const { rows } = await client.query(`
+      SELECT 1 FROM session_profiles sp
+      JOIN admin_profiles ap ON ap.steam_id = sp.steam_id
+      WHERE sp.session_id = $1 AND sp.steam_id = $2
+    `, [sid, adminSteamId]);
+    return rows.length > 0;
+  }
+  return false;
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -41,15 +67,15 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).end();
 
-  const { action, secret, steamId, logId, sessionId, contestId, contestName } = req.body || {};
-
-  if (!secret || secret !== process.env.ADMIN_SECRET) {
-    return res.status(403).json({ error: 'Unauthorized' });
-  }
+  const { action, secret, steamId, logId, sessionId, contestId, contestName, adminSteamId } = req.body || {};
 
   const client = await pool.connect();
   try {
     await client.query(CONTEST_INIT);
+
+    if (!(await checkAuth(client, req.body))) {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
 
     // ── Votes ──────────────────────────────────────────────
     if (action === 'delete_player') {
@@ -180,49 +206,34 @@ export default async function handler(req, res) {
     }
 
     if (action === 'create_map_poll') {
-      await client.query(`
-        CREATE TABLE IF NOT EXISTS map_polls (
-          id SERIAL PRIMARY KEY, maps TEXT[] NOT NULL,
-          active BOOLEAN NOT NULL DEFAULT TRUE, created_at TIMESTAMPTZ DEFAULT NOW()
-        );
-        CREATE TABLE IF NOT EXISTS map_votes (
-          poll_id INT NOT NULL, session_id VARCHAR(30) NOT NULL,
-          map_name VARCHAR(80) NOT NULL, PRIMARY KEY (poll_id, session_id)
-        );
-      `);
+      // Używa createNewPoll z map-poll.js: losuje mapę wykluczając zwycięzców ostatnich 12h
+      const poll = await createNewPoll(client);
+      return res.status(200).json({ ok: true, poll });
+    }
 
-      const MAP_POOL = {
-        payload: ['pl_upward_f12','pl_vigil_rc10','pl_problitz_rc2','pl_borneo_f2',
-                  'pl_cornwater_b8d','pl_prowater_b12','pl_swiftwater_final1','pl_summercoast_rc8e'],
-        koth:    ['koth_product_final','koth_warmtic_f10','koth_cascade_rc2','koth_proplant_v8',
-                  'koth_ashville_final1','koth_coalplant_b8','koth_proot_b6b','koth_daenam_b12','koth_proside_v1'],
-        cp:      ['cp_steel_f12','cp_gullywash_f9','cp_process_f12','cp_propaganda_b19'],
-      };
-
-      // Pobierz mapy z poprzedniego poll (x-1), żeby nie powtarzać
-      const { rows: prev } = await client.query(
-        `SELECT maps FROM map_polls ORDER BY created_at DESC LIMIT 1`
+    // ── Admin profiles ─────────────────────────────────────
+    if (action === 'add_admin') {
+      if (!steamId) return res.status(400).json({ error: 'Missing steamId' });
+      await client.query(
+        `INSERT INTO admin_profiles (steam_id) VALUES ($1) ON CONFLICT DO NOTHING`, [steamId]
       );
-      const exclude = prev.length ? prev[0].maps : [];
+      return res.status(200).json({ ok: true });
+    }
 
-      function pickRandom(pool) {
-        const avail = pool.filter(m => !exclude.includes(m));
-        const src   = avail.length ? avail : pool; // fallback jeśli wszystkie wykluczone
-        return src[Math.floor(Math.random() * src.length)];
-      }
+    if (action === 'remove_admin') {
+      if (!steamId) return res.status(400).json({ error: 'Missing steamId' });
+      await client.query(`DELETE FROM admin_profiles WHERE steam_id=$1`, [steamId]);
+      return res.status(200).json({ ok: true });
+    }
 
-      const maps = [
-        pickRandom(MAP_POOL.payload),
-        pickRandom(MAP_POOL.koth),
-        pickRandom(MAP_POOL.cp),
-      ];
-
-      // Dezaktywuj obecny poll
-      await client.query(`UPDATE map_polls SET active=FALSE WHERE active=TRUE`);
+    if (action === 'list_admins') {
       const { rows } = await client.query(
-        `INSERT INTO map_polls (maps) VALUES ($1) RETURNING *`, [maps]
+        `SELECT ap.steam_id, sp.session_id, ap.added_at
+         FROM admin_profiles ap
+         LEFT JOIN session_profiles sp ON sp.steam_id = ap.steam_id
+         ORDER BY ap.added_at`
       );
-      return res.status(200).json({ ok: true, poll: rows[0] });
+      return res.status(200).json({ ok: true, admins: rows });
     }
 
     return res.status(400).json({ error: 'Unknown action' });

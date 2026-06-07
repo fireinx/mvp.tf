@@ -50,17 +50,27 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  const { logId, steamId, playerName = '', sessionId, adminSecret } = req.body || {};
+  const { logId, steamId, playerName = '', sessionId, adminSecret, adminSteamId } = req.body || {};
 
   if (!logId || !/^\d{4,8}$/.test(logId)) return res.status(400).json({ error: 'Invalid logId' });
   if (!steamId || !sessionId)              return res.status(400).json({ error: 'Missing fields' });
 
-  const isAdmin = adminSecret && adminSecret === process.env.ADMIN_SECRET;
+  let isAdmin = !!(adminSecret && adminSecret === process.env.ADMIN_SECRET);
   const isAuto  = String(sessionId).startsWith('auto:');
 
   const client = await pool.connect();
   try {
     await client.query(INIT_SQL);
+
+    // Weryfikacja admina przez profil (jeśli nie przez secret)
+    if (!isAdmin && !isAuto && adminSteamId && sessionId) {
+      const { rows: adminCheck } = await client.query(`
+        SELECT 1 FROM session_profiles sp
+        JOIN admin_profiles ap ON ap.steam_id = sp.steam_id
+        WHERE sp.session_id = $1 AND sp.steam_id = $2
+      `, [sessionId, adminSteamId]);
+      if (adminCheck.length > 0) isAdmin = true;
+    }
 
     // Limit głosów i self-vote: pomijamy dla admina i auto-głosów
     if (!isAdmin && !isAuto) {

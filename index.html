@@ -257,11 +257,17 @@ const URL_OPEN = _params.has('open');
 // ?log=ID — bezpośredni link do lobby
 const URL_LOG = _params.get('log') || '';
 
+// Auth admina — URL secret LUB profil. Aktualizowane przez App po wykryciu profilu.
+let _adminAuth = ADMIN_SECRET ? { secret: ADMIN_SECRET } : {};
+function setAdminAuth(steamId) {
+  if (!ADMIN_SECRET) _adminAuth = { sessionId: SESSION_ID, adminSteamId: steamId };
+}
+
 async function adminFetch(action, extra = {}) {
   const r = await fetch('/api/admin', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action, secret: ADMIN_SECRET, ...extra }),
+    body: JSON.stringify({ action, ..._adminAuth, ...extra }),
   });
   return r.json();
 }
@@ -317,6 +323,56 @@ function AdminRankingPlayers({ rows, onRemove, onClearAll, actionLabel }) {
           }
         </div>
       )}
+    </div>
+  );
+}
+
+function AdminProfilesSection({ btnStyle, act }) {
+  const [admins, setAdmins]   = useState([]);
+  const [newSteam, setNewSteam] = useState('');
+  const [loaded, setLoaded]   = useState(false);
+
+  const load = () => {
+    adminFetch('list_admins').then(d => { if (d?.admins) { setAdmins(d.admins); setLoaded(true); } });
+  };
+
+  React.useEffect(() => { load(); }, []);
+
+  return (
+    <div>
+      {!loaded && <div style={{fontSize:11, color:'#333'}}>loading…</div>}
+      {admins.map(a => (
+        <div key={a.steam_id} style={{display:'flex', alignItems:'center', gap:6, padding:'4px 0', borderBottom:'1px solid #161616'}}>
+          <a href={`https://logs.tf/profile/${a.steam_id}`} target="_blank" rel="noopener noreferrer"
+            style={{flex:1, fontSize:11, color:'#e8e8e8', textDecoration:'none'}}
+            onMouseEnter={e=>e.target.style.textDecoration='underline'} onMouseLeave={e=>e.target.style.textDecoration='none'}>
+            {a.steam_id}
+          </a>
+          {a.session_id
+            ? <span style={{fontSize:10, color:'#4ade80'}}>✓ linked</span>
+            : <span style={{fontSize:10, color:'#555'}}>no profile</span>}
+          <button style={btnStyle(true, false)}
+            onClick={() => act('remove_admin', {steamId: a.steam_id}).then(load)}>
+            remove
+          </button>
+        </div>
+      ))}
+      <div style={{display:'flex', gap:6, marginTop:8}}>
+        <input value={newSteam} onChange={e => setNewSteam(e.target.value)}
+          placeholder="steam64 ID…"
+          style={{flex:1, background:'#1a1a1a', border:'1px solid #2a2a2a', borderRadius:3,
+            color:'#e8e8e8', fontSize:11, padding:'4px 8px', fontFamily:'inherit'}}/>
+        <button style={btnStyle(false, false)}
+          onClick={() => {
+            if (!/^\d{17}$/.test(newSteam)) return;
+            act('add_admin', {steamId: newSteam}).then(() => { setNewSteam(''); load(); });
+          }}>
+          add admin
+        </button>
+      </div>
+      <div style={{fontSize:9, color:'#2a2a2a', marginTop:4}}>
+        paste steam64 id (17 digits) — user must also link their logs.tf profile
+      </div>
     </div>
   );
 }
@@ -395,11 +451,9 @@ function AdminHomePanel({ leaderboard, onRefreshLeaderboard, globalRecent, onRef
         </div>
       ))}
 
-      {/* Map poll */}
-      <div style={{fontSize:10, color:'#333', textTransform:'uppercase', letterSpacing:'0.1em', marginTop:16, marginBottom:6}}>map poll</div>
-      <button style={btnStyle(false, false)} onClick={() => act('create_map_poll')}>
-        new map poll
-      </button>
+      {/* Admin profiles */}
+      <div style={{fontSize:10, color:'#333', textTransform:'uppercase', letterSpacing:'0.1em', marginTop:16, marginBottom:6}}>admin profiles</div>
+      <AdminProfilesSection btnStyle={btnStyle} act={act} />
 
       {/* Maintenance */}
       <div style={{fontSize:10, color:'#333', textTransform:'uppercase', letterSpacing:'0.1em', marginTop:16, marginBottom:6}}>maintenance</div>
@@ -458,21 +512,78 @@ function AdminHomePanel({ leaderboard, onRefreshLeaderboard, globalRecent, onRef
   );
 }
 
-function MapPoll() {
-  const [poll, setPoll]         = useState(null);
-  const [votes, setVotes]       = useState({});
-  const [prevPoll, setPrevPoll] = useState(null);
-  const [prevVotes, setPrevVotes] = useState({});
-  const [myVote, setMyVote]     = useState(null);
-  const [ready, setReady]       = useState(false);
+function MapPool({ mapPool, recentWinners }) {
+  const [open, setOpen] = useState(false);
+  if (!mapPool) return null;
+  const mode = m => m.startsWith('pl_') ? 'PL' : m.startsWith('koth_') ? 'KOTH' : 'CP';
+  const cats = [
+    { key: 'payload', label: 'Payload', maps: mapPool.payload || [] },
+    { key: 'koth',    label: 'KOTH',    maps: mapPool.koth    || [] },
+    { key: 'cp',      label: 'CP',      maps: mapPool.cp      || [] },
+  ];
+  return (
+    <span style={{position:'relative', display:'inline-block'}}>
+      <span
+        onClick={() => setOpen(v => !v)}
+        style={{fontSize:10, color:'#2a2a2a', cursor:'pointer', userSelect:'none',
+          border:'1px solid #222', borderRadius:3, padding:'1px 5px', lineHeight:'16px'}}
+        onMouseEnter={e=>e.target.style.color='#555'} onMouseLeave={e=>e.target.style.color='#2a2a2a'}>
+        ?
+      </span>
+      {open && (
+        <div style={{position:'absolute', left:0, top:20, zIndex:100,
+          background:'#141414', border:'1px solid #2a2a2a', borderRadius:4,
+          padding:'10px 12px', minWidth:220, boxShadow:'0 4px 16px #000a'}}>
+          <div style={{fontSize:9, color:'#333', textTransform:'uppercase', letterSpacing:'0.1em', marginBottom:8}}>
+            map pool
+          </div>
+          {cats.map(cat => (
+            <div key={cat.key} style={{marginBottom:8}}>
+              <div style={{fontSize:9, color:'#444', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:3}}>{cat.label}</div>
+              {cat.maps.map(m => {
+                const played = recentWinners?.includes(m);
+                return (
+                  <div key={m} style={{fontSize:11, color: played ? '#333' : '#666', padding:'1px 0',
+                    textDecoration: played ? 'line-through' : 'none'}}>
+                    {m} {played && <span style={{fontSize:9, color:'#333'}}>·played</span>}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+          <div style={{fontSize:9, color:'#2a2a2a', marginTop:6}}>strikethrough = played in last 12h</div>
+        </div>
+      )}
+    </span>
+  );
+}
+
+function MapPoll({ isAdmin }) {
+  const [poll, setPoll]               = useState(null);
+  const [votes, setVotes]             = useState({});
+  const [prevPoll, setPrevPoll]       = useState(null);
+  const [prevVotes, setPrevVotes]     = useState({});
+  const [myVote, setMyVote]           = useState(null);
+  const [ready, setReady]             = useState(false);
+  const [recentWinners, setRecent]    = useState([]);
+  const [rerollCount, setRerollCount] = useState(0);
+  const [myReroll, setMyReroll]       = useState(false);
+  const [mapPool, setMapPool]         = useState(null);
+  const [rerollThreshold, setThresh]  = useState(9);
+  const [swapping, setSwapping]       = useState(false);
 
   const load = React.useCallback(() => {
-    fetch('/api/map-poll')
+    fetch(`/api/map-poll?sessionId=${SESSION_ID}`)
       .then(r => r.ok ? r.json() : null)
       .then(d => {
         if (d) {
           setPoll(d.poll); setVotes(d.votes || {});
           setPrevPoll(d.prevPoll || null); setPrevVotes(d.prevVotes || {});
+          setRecent(d.recentWinners || []);
+          setRerollCount(d.rerollCount || 0);
+          setMyReroll(d.myReroll || false);
+          if (d.mapPool) setMapPool(d.mapPool);
+          if (d.rerollThreshold) setThresh(d.rerollThreshold);
         }
         setReady(true);
       })
@@ -504,6 +615,33 @@ function MapPoll() {
     }
   };
 
+  const castReroll = async () => {
+    if (myReroll || !poll) return;
+    const r = await fetch('/api/map-poll', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId: SESSION_ID, action: 'reroll' }),
+    }).catch(() => null);
+    if (!r?.ok) return;
+    const d = await r.json();
+    setMyReroll(true);
+    if (d.rerolled) {
+      setPoll(d.poll); setVotes({}); setMyVote(null);
+      setRerollCount(0); setMyReroll(false);
+      setRecent(d.recentWinners || []);
+    } else {
+      setRerollCount(d.rerollCount || rerollCount + 1);
+    }
+  };
+
+  const adminSwap = async () => {
+    if (swapping) return;
+    setSwapping(true);
+    await adminFetch('create_map_poll');
+    await load();
+    setSwapping(false);
+  };
+
   if (!ready || (!poll && !prevPoll)) return null;
 
   const total = poll ? Object.values(votes).reduce((a, b) => a + b, 0) : 0;
@@ -512,9 +650,22 @@ function MapPoll() {
   return (
     <div style={{padding:'20px 20px 0'}}>
       {poll && <>
-      <div style={{fontSize:10, fontWeight:500, letterSpacing:'0.12em', color:'#333', textTransform:'uppercase', marginBottom:8}}>
-        next map{total > 0 ? <span style={{fontWeight:400}}> · {total} {total===1?'vote':'votes'}</span> : ''}
+      {/* Header: "next map · N votes" + ? tooltip + admin swap */}
+      <div style={{display:'flex', alignItems:'center', gap:6, marginBottom:8}}>
+        <div style={{fontSize:10, fontWeight:500, letterSpacing:'0.12em', color:'#333', textTransform:'uppercase', flex:1}}>
+          next map{total > 0 ? <span style={{fontWeight:400}}> · {total} {total===1?'vote':'votes'}</span> : ''}
+        </div>
+        <MapPool mapPool={mapPool} recentWinners={recentWinners} />
+        {isAdmin && (
+          <button onClick={adminSwap} disabled={swapping}
+            style={{background:'transparent', border:'1px solid #2a2a2a', borderRadius:3,
+              color:'#444', fontSize:10, padding:'1px 7px', cursor:'pointer', fontFamily:'inherit'}}
+            title="generate new map poll">
+            {swapping ? '…' : 'swap'}
+          </button>
+        )}
       </div>
+
       {poll.maps.map(map => {
         const cnt      = votes[map] || 0;
         const pct      = total > 0 ? Math.round(cnt / total * 100) : 0;
@@ -538,6 +689,18 @@ function MapPoll() {
           </div>
         );
       })}
+
+      {/* Reroll button */}
+      <div style={{marginTop:8, display:'flex', alignItems:'center', gap:8}}>
+        <button onClick={castReroll} disabled={myReroll}
+          style={{background:'transparent', border:`1px solid ${myReroll ? '#1e1e1e' : '#2a2a2a'}`,
+            borderRadius:3, color: myReroll ? '#2a2a2a' : '#444', fontSize:10,
+            padding:'2px 8px', cursor: myReroll ? 'default' : 'pointer', fontFamily:'inherit'}}
+          title={myReroll ? 'you already voted for reroll' : `vote to change maps (${rerollThreshold} needed)`}>
+          reroll {rerollCount}/{rerollThreshold}
+        </button>
+        {myReroll && <span style={{fontSize:10, color:'#2a2a2a'}}>✓ reroll requested</span>}
+      </div>
       </>}
 
       {/* Poprzedni poll */}
@@ -595,13 +758,16 @@ function App() {
   // Admin: time limit controls
   const [bypassTimeLimit, setBypassTimeLimit] = useState(false);
   const [timeLimitMin, setTimeLimitMin] = useState(DEFAULT_LIMIT_MIN);
+  // Admin przez profil (bez URL param)
+  const [isAdminByProfile, setIsAdminByProfile] = useState(false);
+  const isAdmin = !!ADMIN_SECRET || isAdminByProfile;
 
   const votesLeft = MAX_VOTES - myVotes.length;
 
   // Czy głosowanie jest otwarte (limit czasowy)
   const logAge = logData ? (Date.now() / 1000 - (logData.info?.date ?? 0)) : 0;
   const timeLimitSec = timeLimitMin * 60;
-  const votingOpen = ADMIN_SECRET
+  const votingOpen = isAdmin
     ? (bypassTimeLimit || logAge < timeLimitSec)
     : (URL_OPEN || logAge < timeLimitSec);
   const timeLeft = Math.max(0, Math.ceil((timeLimitSec - logAge) / 60));
@@ -624,10 +790,31 @@ function App() {
   }, []);
 
   const refreshGlobalRecent = React.useCallback(() => {
-    if (!ADMIN_SECRET) return;
+    if (!isAdmin) return;
     fetch('/api/recent-global?limit=20')
       .then(r => r.ok ? r.json() : [])
       .then(data => setGlobalRecent(Array.isArray(data) ? data : []))
+      .catch(() => {});
+  }, [isAdmin]);
+
+  // Sprawdź przy starcie czy profil jest adminem
+  React.useEffect(() => {
+    fetch(`/api/profile?sessionId=${SESSION_ID}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (!d) return;
+        if (d.steam_id && !myProfile) {
+          // Profil istnieje w DB ale nie w localStorage — synchronizuj
+          const p = { steamId: d.steam_id };
+          setMyProfile(p);
+          storageSet('profile', p);
+        }
+        if (d.is_admin) {
+          setIsAdminByProfile(true);
+          const steamId = d.steam_id || myProfile?.steamId;
+          if (steamId) setAdminAuth(steamId);
+        }
+      })
       .catch(() => {});
   }, []);
 
@@ -652,6 +839,19 @@ function App() {
     }, interval);
     return () => clearInterval(id);
   }, [logId, votesLeft]);
+
+  // Sync-logs polling gdy admin otwarty (pobiera nowe gry z logs.tf automatycznie)
+  React.useEffect(() => {
+    if (!isAdmin) return;
+    const sync = () => {
+      fetch('/api/sync-logs').then(r => r.ok ? r.json() : null)
+        .then(d => { if (d?.synced > 0) refreshGlobalRecent(); })
+        .catch(() => {});
+    };
+    sync(); // od razu przy starcie
+    const id = setInterval(sync, 60_000);
+    return () => clearInterval(id);
+  }, [isAdmin]);
 
   // Auto-load z URL ?log=ID przy starcie
   React.useEffect(() => {
@@ -689,7 +889,6 @@ function App() {
   }, [input, loadId]);
 
   const vote = useCallback(async (steamId, playerName) => {
-    const isAdmin = !!ADMIN_SECRET;
     if (!votingOpen && !isAdmin) return;
     if (!isAdmin && (votesLeft <= 0 || myVotes.includes(steamId))) return;
     // Blokada self-vote po stronie klienta (serwer też sprawdza)
@@ -699,13 +898,17 @@ function App() {
       setMyVotes(nm);
       storageSet(`m:${logId}`, nm);
     }
+    // Admin auth: URL secret lub profil admin
+    const adminPayload = isAdmin
+      ? (ADMIN_SECRET ? { adminSecret: ADMIN_SECRET } : { adminSteamId: myProfile?.steamId })
+      : {};
     try {
       const res = await fetch('/api/vote', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           logId, steamId, sessionId: SESSION_ID, playerName: playerName || '',
-          ...(isAdmin ? { adminSecret: ADMIN_SECRET } : {}),
+          ...adminPayload,
         }),
       });
       const json = await res.json();
@@ -713,7 +916,7 @@ function App() {
     } catch {
       setVotes(v => ({ ...v, [steamId]: (v[steamId]||0)+1 }));
     }
-  }, [myVotes, votesLeft, logId, votingOpen]);
+  }, [myVotes, votesLeft, logId, votingOpen, isAdmin, myProfile]);
 
   const resetLobby = useCallback(async () => {
     setResetStatus('…');
@@ -811,7 +1014,7 @@ function App() {
         const myRecent = storageGet('recent') || [];
         // Dla admina: pokaż "others" = globalRecent minus te które admin też ma lokalnie
         const myIds = new Set(myRecent.map(r => r.id));
-        const othersRecent = ADMIN_SECRET
+        const othersRecent = isAdmin
           ? globalRecent.filter(r => !myIds.has(r.log_id))
           : [];
         const hasAny = myRecent.length > 0 || othersRecent.length > 0;
@@ -831,7 +1034,7 @@ function App() {
           <div style={{padding:'20px 20px 0'}}>
             {myRecent.length > 0 && <>
               <div style={{fontSize:10, fontWeight:500, letterSpacing:'0.12em', color:'#333', textTransform:'uppercase', marginBottom:8}}>
-                {ADMIN_SECRET ? 'recent · yours' : 'recent'}
+                {isAdmin ? 'recent · yours' : 'recent'}
               </div>
               {myRecent.map(r => recentRow(r.id, r.map, () => { setInput(`https://logs.tf/${r.id}`); loadId(r.id); }, r.ts))}
             </>}
@@ -845,7 +1048,7 @@ function App() {
         ) : <p style={{textAlign:'center', color:'#2a2a2a', fontSize:13, marginTop:40}}>paste a link from logs.tf and press GO</p>;
       })()}
 
-      {!logData && !loading && <MapPoll />}
+      {!logData && !loading && <MapPoll isAdmin={isAdmin} />}
 
       {!logData && !loading && (
         <div style={{padding:'20px 20px 0'}}>
@@ -893,7 +1096,7 @@ function App() {
         </div>
       )}
 
-      {!logData && !loading && ADMIN_SECRET && (
+      {!logData && !loading && isAdmin && (
         <AdminHomePanel
           leaderboard={leaderboard}
           onRefreshLeaderboard={refreshLeaderboard}
@@ -919,9 +1122,9 @@ function App() {
           <p style={{textAlign:'center', fontSize:11, color:'#444', marginTop:4, letterSpacing:'0.05em'}}>{logData.info?.map||''}</p>
 
           <p style={{textAlign:'center', fontSize:12, color:'#555', margin:'16px 0 20px'}}>
-            {!votingOpen && !ADMIN_SECRET
+            {!votingOpen && !isAdmin
               ? <span style={{color:'#f87171'}}>voting closed — {timeLimitMin}min window expired</span>
-              : ADMIN_SECRET
+              : isAdmin
                 ? <span style={{color:'#f87171'}}>admin — unlimited votes</span>
                 : votesLeft > 0
                   ? <><b style={{color:'#e8e8e8'}}>{votesLeft}</b> / {MAX_VOTES} votes left · {timeLeft}min remaining</>
@@ -932,16 +1135,16 @@ function App() {
           <div style={{display:'flex', gap:0}}>
             <div style={{flex:1, minWidth:0}}>
               <div style={{fontSize:11, fontWeight:500, letterSpacing:'0.12em', color:'#378ADD', textAlign:'center', marginBottom:10}}>BLU</div>
-              {blu.map(p => <PlayerRow key={p.id} p={p} votes={votes} myVotes={myVotes} votesLeft={ADMIN_SECRET ? 99 : votesLeft} votingOpen={votingOpen || !!ADMIN_SECRET} onVote={vote} accent="#378ADD" isSelf={!ADMIN_SECRET && !!myProfile && toSteam64(p.id) === myProfile.steamId}/>)}
+              {blu.map(p => <PlayerRow key={p.id} p={p} votes={votes} myVotes={myVotes} votesLeft={isAdmin ? 99 : votesLeft} votingOpen={votingOpen || isAdmin} onVote={vote} accent="#378ADD" isSelf={!isAdmin && !!myProfile && toSteam64(p.id) === myProfile.steamId}/>)}
             </div>
             <div style={{width:1, background:'#1e1e1e', margin:'0 14px'}}/>
             <div style={{flex:1, minWidth:0}}>
               <div style={{fontSize:11, fontWeight:500, letterSpacing:'0.12em', color:'#E24B4A', textAlign:'center', marginBottom:10}}>RED</div>
-              {red.map(p => <PlayerRow key={p.id} p={p} votes={votes} myVotes={myVotes} votesLeft={ADMIN_SECRET ? 99 : votesLeft} votingOpen={votingOpen || !!ADMIN_SECRET} onVote={vote} accent="#E24B4A" isSelf={!ADMIN_SECRET && !!myProfile && toSteam64(p.id) === myProfile.steamId}/>)}
+              {red.map(p => <PlayerRow key={p.id} p={p} votes={votes} myVotes={myVotes} votesLeft={isAdmin ? 99 : votesLeft} votingOpen={votingOpen || isAdmin} onVote={vote} accent="#E24B4A" isSelf={!isAdmin && !!myProfile && toSteam64(p.id) === myProfile.steamId}/>)}
             </div>
           </div>
 
-          {ranked.length > 0 && (votesLeft === 0 || !votingOpen || ADMIN_SECRET) && (
+          {ranked.length > 0 && (votesLeft === 0 || !votingOpen || isAdmin) && (
             <div style={{marginTop:28, paddingTop:18, borderTop:'1px solid #1e1e1e'}}>
               <div style={{fontSize:11, fontWeight:500, letterSpacing:'0.12em', color:'#333', marginBottom:10, textTransform:'uppercase'}}>standings</div>
               {ranked.map((p,i) => (
@@ -955,7 +1158,7 @@ function App() {
             </div>
           )}
 
-          {ADMIN_SECRET && logId && (
+          {isAdmin && logId && (
             <div style={{marginTop:20, padding:'12px', border:'1px solid #1e1e1e', borderRadius:4}}>
               <div style={{fontSize:10, fontWeight:500, letterSpacing:'0.12em', color:'#f87171', textTransform:'uppercase', marginBottom:10}}>admin · lobby</div>
               <div style={{display:'flex', flexWrap:'wrap', gap:8, alignItems:'center'}}>
