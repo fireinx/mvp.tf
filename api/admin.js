@@ -236,6 +236,52 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, admins: rows });
     }
 
+    // Backfill log_players — pobiera uczestników z logs.tf dla wszystkich znanych logów
+    // Opcjonalnie: tylko dla konkretnego contestId
+    if (action === 'sync_log_players') {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS log_players (
+          log_id      VARCHAR(10)  NOT NULL,
+          steam_id    VARCHAR(25)  NOT NULL,
+          player_name VARCHAR(100) NOT NULL DEFAULT '',
+          PRIMARY KEY (log_id, steam_id)
+        )
+      `);
+
+      // Zbierz log_id do przetworzenia
+      let logIds;
+      if (contestId) {
+        const { rows } = await client.query(
+          `SELECT log_id FROM contest_logs WHERE contest_id = $1`, [contestId]
+        );
+        logIds = rows.map(r => r.log_id);
+      } else {
+        const { rows } = await client.query(`SELECT log_id FROM log_settings LIMIT 50`);
+        logIds = rows.map(r => r.log_id);
+      }
+
+      let synced = 0, failed = 0;
+      for (const lid of logIds) {
+        try {
+          const r = await fetch(`https://logs.tf/api/v1/log/${lid}`, {
+            headers: { 'User-Agent': 'mvp.tf/1.0' }
+          });
+          if (!r.ok) { failed++; continue; }
+          const data = await r.json();
+          for (const [sid] of Object.entries(data.players || {})) {
+            const name = (data.names?.[sid] || '').slice(0, 100);
+            await client.query(`
+              INSERT INTO log_players (log_id, steam_id, player_name)
+              VALUES ($1, $2, $3)
+              ON CONFLICT (log_id, steam_id) DO UPDATE SET player_name = EXCLUDED.player_name
+            `, [lid, sid, name]);
+          }
+          synced++;
+        } catch { failed++; }
+      }
+      return res.status(200).json({ ok: true, synced, failed, total: logIds.length });
+    }
+
     return res.status(400).json({ error: 'Unknown action' });
   } catch (err) {
     console.error(err);

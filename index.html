@@ -457,9 +457,15 @@ function AdminHomePanel({ leaderboard, onRefreshLeaderboard, globalRecent, onRef
 
       {/* Maintenance */}
       <div style={{fontSize:10, color:'#333', textTransform:'uppercase', letterSpacing:'0.1em', marginTop:16, marginBottom:6}}>maintenance</div>
-      <button style={btnStyle(false, false)} onClick={() => act('fix_missing_names')}>
-        fix missing player names
-      </button>
+      <div style={{display:'flex', gap:6, flexWrap:'wrap'}}>
+        <button style={btnStyle(false, false)} onClick={() => act('fix_missing_names')}>
+          fix missing player names
+        </button>
+        <button style={btnStyle(false, false)} onClick={() => act('sync_log_players')}
+          title="backfill who played in each log (fixes games count in leaderboard)">
+          sync game participants
+        </button>
+      </div>
 
       {/* Contests management */}
       <div style={{fontSize:10, color:'#333', textTransform:'uppercase', letterSpacing:'0.1em', marginTop:16, marginBottom:6}}>contests</div>
