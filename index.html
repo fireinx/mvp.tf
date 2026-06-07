@@ -468,7 +468,7 @@ function AdminHomePanel({ leaderboard, onRefreshLeaderboard, globalRecent, onRef
   const fetchContestPlayers = async (cid) => {
     try {
       const r = await fetch(`/api/leaderboard?limit=50&contest=${cid}`);
-      if (r.ok) setContestPlayers(p => ({ ...p, [cid]: await r.json() }));
+      if (r.ok) { const data = await r.json(); setContestPlayers(p => ({ ...p, [cid]: data })); }
     } catch {}
   };
 
