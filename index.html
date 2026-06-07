@@ -760,7 +760,9 @@ function App() {
   const [timeLimitMin, setTimeLimitMin] = useState(DEFAULT_LIMIT_MIN);
   // Admin przez profil (bez URL param)
   const [isAdminByProfile, setIsAdminByProfile] = useState(false);
-  const isAdmin = !!ADMIN_SECRET || isAdminByProfile;
+  const [playerView, setPlayerView] = useState(false); // admin tryb podglądu gracza
+  const isAdminReal = !!ADMIN_SECRET || isAdminByProfile;
+  const isAdmin = isAdminReal && !playerView;
 
   const votesLeft = MAX_VOTES - myVotes.length;
 
@@ -981,6 +983,26 @@ function App() {
         {' '}
         <a href="https://mvp.tf" style={{fontSize:12, color:'#444', letterSpacing:'0.06em', textDecoration:'none'}}
           onMouseEnter={e=>e.target.style.color='#888'} onMouseLeave={e=>e.target.style.color='#444'}>mvp.tf</a>
+        {/* Ikonka trybu podglądu gracza (tylko dla adminów) */}
+        {isAdminReal && (
+          <button onClick={() => setPlayerView(v => !v)}
+            title={playerView ? 'switch to admin view' : 'switch to player view (for screenshots)'}
+            style={{position:'absolute', right:50, top:'50%', transform:'translateY(-50%)',
+              background: playerView ? '#1a1a1a' : 'transparent',
+              border:`1px solid ${playerView ? '#555' : '#1e1e1e'}`,
+              borderRadius:'50%', width:28, height:28, cursor:'pointer',
+              color: playerView ? '#aaa' : '#2a2a2a', display:'flex', alignItems:'center',
+              justifyContent:'center', padding:0, transition:'all .15s'}}
+            onMouseEnter={e=>{e.currentTarget.style.borderColor='#555';e.currentTarget.style.color='#aaa'}}
+            onMouseLeave={e=>{e.currentTarget.style.borderColor=playerView?'#555':'#1e1e1e';e.currentTarget.style.color=playerView?'#aaa':'#2a2a2a'}}>
+            {/* Ikonka "oko" */}
+            <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+              <ellipse cx="7" cy="7" rx="5.5" ry="3.5"/>
+              <circle cx="7" cy="7" r="1.5" fill="currentColor" stroke="none"/>
+              {playerView && <line x1="2" y1="2" x2="12" y2="12"/>}
+            </svg>
+          </button>
+        )}
         {/* Ikonka profilu */}
         <button onClick={() => setProfileOpen(true)} title={myProfile ? `linked: ${myProfile.steamId}` : 'link your profile'}
           style={{position:'absolute', right:14, top:'50%', transform:'translateY(-50%)',
