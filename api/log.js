@@ -15,8 +15,10 @@ const INIT_SQL = `
     title     VARCHAR(120) NOT NULL DEFAULT '',
     excluded  BOOLEAN      NOT NULL DEFAULT FALSE,
     first_seen TIMESTAMPTZ DEFAULT NOW(),
-    last_seen  TIMESTAMPTZ DEFAULT NOW()
+    last_seen  TIMESTAMPTZ DEFAULT NOW(),
+    played_at  TIMESTAMPTZ DEFAULT NULL
   );
+  ALTER TABLE log_settings ADD COLUMN IF NOT EXISTS played_at TIMESTAMPTZ DEFAULT NULL;
   CREATE TABLE IF NOT EXISTS log_players (
     log_id      VARCHAR(10)  NOT NULL,
     steam_id    VARCHAR(25)  NOT NULL,
@@ -51,20 +53,22 @@ export default async function handler(req, res) {
     const data = await response.json();
 
     // Zapisz/zaktualizuj log_settings
-    const map   = data.info?.map   || '';
-    const title = data.info?.title || '';
+    const map      = data.info?.map   || '';
+    const title    = data.info?.title || '';
+    const playedAt = data.info?.date  ? new Date(data.info.date * 1000).toISOString() : null;
     try {
       const client2 = await pool.connect();
       try {
         await client2.query(INIT_SQL);
         await client2.query(`
-          INSERT INTO log_settings (log_id, map, title, last_seen)
-          VALUES ($1, $2, $3, NOW())
+          INSERT INTO log_settings (log_id, map, title, last_seen, played_at)
+          VALUES ($1, $2, $3, NOW(), $4)
           ON CONFLICT (log_id) DO UPDATE
             SET last_seen = NOW(),
-                map   = EXCLUDED.map,
-                title = EXCLUDED.title
-        `, [id, map, title]);
+                map       = EXCLUDED.map,
+                title     = EXCLUDED.title,
+                played_at = COALESCE(log_settings.played_at, EXCLUDED.played_at)
+        `, [id, map, title, playedAt]);
         // Zapisz wszystkich uczestników meczu
         const players = Object.entries(data.players || {});
         for (const [steamId] of players) {

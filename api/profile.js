@@ -31,7 +31,7 @@ export default async function handler(req, res) {
   try {
     await client.query(INIT_SQL);
 
-    // GET — pobierz profil dla sesji
+    // GET — pobierz profil dla sesji (+ nick z naszej bazy + avatar ze Steam)
     if (req.method === 'GET') {
       const { sessionId } = req.query;
       if (!sessionId) return res.status(400).json({ error: 'Missing sessionId' });
@@ -42,10 +42,38 @@ export default async function handler(req, res) {
          WHERE sp.session_id = $1`,
         [sessionId]
       );
-      return res.status(200).json({
-        steam_id: rows[0]?.steam_id ?? null,
-        is_admin: rows[0]?.is_admin ?? false,
-      });
+      const steamId = rows[0]?.steam_id ?? null;
+      const isAdmin = rows[0]?.is_admin ?? false;
+
+      let name = null;
+      let avatar = null;
+
+      if (steamId) {
+        // Nick z naszej bazy (log_players lub votes)
+        const { rows: nameRows } = await client.query(`
+          SELECT player_name FROM (
+            SELECT player_name, 1 AS src FROM log_players WHERE steam_id = $1 AND player_name <> '' LIMIT 1
+            UNION ALL
+            SELECT player_name, 2 AS src FROM votes WHERE steam_id = $1 AND player_name <> '' LIMIT 1
+          ) t ORDER BY src LIMIT 1
+        `, [steamId]).catch(() => ({ rows: [] }));
+        name = nameRows[0]?.player_name ?? null;
+
+        // Avatar ze Steam Community XML (publiczne, bez API key)
+        try {
+          const r = await fetch(`https://steamcommunity.com/profiles/${steamId}?xml=1`,
+            { headers: { 'User-Agent': 'mvp.tf/1.0' }, signal: AbortSignal.timeout(3000) });
+          if (r.ok) {
+            const xml = await r.text();
+            const nameMatch   = xml.match(/<steamID><!\[CDATA\[(.+?)\]\]><\/steamID>/);
+            const avatarMatch = xml.match(/<avatarIcon><!\[CDATA\[(.+?)\]\]><\/avatarIcon>/);
+            if (nameMatch)   name   = nameMatch[1];
+            if (avatarMatch) avatar = avatarMatch[1]; // mały 32px avatar URL
+          }
+        } catch {} // timeout lub błąd — nie blokujemy
+      }
+
+      return res.status(200).json({ steam_id: steamId, is_admin: isAdmin, name, avatar });
     }
 
     // POST — przypisz profil do sesji (first-come na steam_id)

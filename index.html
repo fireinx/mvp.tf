@@ -140,7 +140,7 @@ function PlayerRow({ p, votes, myVotes, votesLeft, votingOpen, onVote, accent, i
 }
 
 // Modal profilu — link profilu logs.tf → steam64
-function ProfileModal({ onClose, myProfile, onSave }) {
+function ProfileModal({ onClose, myProfile, onSave, steamName, steamAvatar }) {
   const [url, setUrl]       = useState('');
   const [status, setStatus] = useState('');
   const [saving, setSaving] = useState(false);
@@ -198,12 +198,16 @@ function ProfileModal({ onClose, myProfile, onSave }) {
 
         {myProfile && (
           <div style={{marginBottom:14, padding:'8px 10px', background:'#1a1a1a', borderRadius:4, fontSize:11}}>
-            <div style={{color:'#555', marginBottom:4}}>linked profile</div>
-            <div style={{display:'flex', alignItems:'center', gap:8}}>
-              <a href={`https://logs.tf/profile/${myProfile.steamId}`} target="_blank" rel="noopener noreferrer"
-                style={{color:'#888', textDecoration:'underline', flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>
-                logs.tf/profile/{myProfile.steamId}
-              </a>
+            <div style={{display:'flex', alignItems:'center', gap:10, marginBottom:6}}>
+              {steamAvatar && <img src={steamAvatar} alt="" width="32" height="32" style={{borderRadius:'50%', flexShrink:0}}/>}
+              <div style={{flex:1, minWidth:0}}>
+                {steamName && <div style={{color:'#e8e8e8', fontWeight:500, marginBottom:2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>{steamName}</div>}
+                <a href={`https://logs.tf/profile/${myProfile.steamId}`} target="_blank" rel="noopener noreferrer"
+                  style={{color:'#444', textDecoration:'none', fontSize:10}}
+                  onMouseEnter={e=>e.target.style.color='#888'} onMouseLeave={e=>e.target.style.color='#444'}>
+                  logs.tf ↗
+                </a>
+              </div>
               <button onClick={unlink}
                 style={{background:'transparent', border:'none', color:'#f87171', fontSize:10,
                   cursor:'pointer', padding:0, flexShrink:0}}>
@@ -746,32 +750,47 @@ const RECENT_LIMIT = 5;
 
 function RecentSection({ items, onLoad }) {
   const [expanded, setExpanded] = useState(false);
-  const visible = expanded ? items : items.slice(0, RECENT_LIMIT);
-  const hidden  = items.length - visible.length;
 
   if (!items.length) return null;
+
+  // "NEW" = pierwszy log bez głosów (vote_sessions === 0)
+  const newGame = items.find(r => (r.vote_sessions ?? 1) === 0);
+  const rest    = items.filter(r => r !== newGame);
+  const visible = expanded ? rest : rest.slice(0, RECENT_LIMIT);
+  const hidden  = rest.length - visible.length;
+
+  const row = (r, highlight) => {
+    const id  = r.log_id || r.id;
+    const map = r.map    || '';
+    // played_at z bazy (data meczu) → fallback na last_seen → fallback na ts localStorage
+    const ts  = r.played_at
+      ? new Date(r.played_at).getTime()
+      : r.last_seen
+        ? new Date(r.last_seen).getTime()
+        : (r.ts || null);
+    return (
+      <div key={id} onClick={() => onLoad(id)}
+        style={{display:'flex', alignItems:'center', gap:10, padding:'7px 0',
+          borderBottom:'1px solid #161616', cursor:'pointer',
+          borderLeft: highlight ? '2px solid #4ade80' : '2px solid transparent',
+          paddingLeft: highlight ? 6 : 0}}
+        onMouseEnter={e=>e.currentTarget.style.opacity='.7'}
+        onMouseLeave={e=>e.currentTarget.style.opacity='1'}>
+        <span style={{fontSize:12, color: highlight ? '#e8e8e8' : '#e8e8e8'}}>#{id}</span>
+        {map && <span style={{fontSize:11, color:'#555', flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>{map}</span>}
+        {highlight && <span style={{fontSize:9, color:'#4ade80', fontWeight:500, letterSpacing:'0.08em', flexShrink:0}}>NEW</span>}
+        {ts && <span style={{fontSize:10, color:'#333', flexShrink:0}}>{timeAgo(ts)}</span>}
+      </div>
+    );
+  };
 
   return (
     <div style={{padding:'20px 20px 0'}}>
       <div style={{fontSize:10, fontWeight:500, letterSpacing:'0.12em', color:'#333', textTransform:'uppercase', marginBottom:8}}>
         recent
       </div>
-      {visible.map(r => {
-        const id  = r.log_id || r.id;
-        const map = r.map    || '';
-        const ts  = r.last_seen ? new Date(r.last_seen).getTime() : (r.ts || null);
-        return (
-          <div key={id} onClick={() => onLoad(id)}
-            style={{display:'flex', alignItems:'center', gap:10, padding:'7px 0',
-              borderBottom:'1px solid #161616', cursor:'pointer'}}
-            onMouseEnter={e=>e.currentTarget.style.opacity='.7'}
-            onMouseLeave={e=>e.currentTarget.style.opacity='1'}>
-            <span style={{fontSize:12, color:'#e8e8e8'}}>#{id}</span>
-            {map && <span style={{fontSize:11, color:'#555', flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>{map}</span>}
-            {ts && <span style={{fontSize:10, color:'#333', flexShrink:0}}>{timeAgo(ts)}</span>}
-          </div>
-        );
-      })}
+      {newGame && row(newGame, true)}
+      {visible.map(r => row(r, false))}
       {hidden > 0 && (
         <button onClick={() => setExpanded(true)}
           style={{marginTop:6, background:'transparent', border:'none', color:'#333',
@@ -811,6 +830,9 @@ function App() {
   const [playerView, setPlayerView] = useState(false); // admin tryb podglądu gracza
   const isAdminReal = !!ADMIN_SECRET || isAdminByProfile;
   const isAdmin = isAdminReal && !playerView;
+  // Steam profil — nick i avatar
+  const [steamName,   setSteamName]   = useState(() => storageGet('steamName')   || null);
+  const [steamAvatar, setSteamAvatar] = useState(() => storageGet('steamAvatar') || null);
 
   const votesLeft = MAX_VOTES - myVotes.length;
 
@@ -846,14 +868,13 @@ function App() {
       .catch(() => {});
   }, []);
 
-  // Sprawdź przy starcie czy profil jest adminem
+  // Sprawdź przy starcie czy profil jest adminem + załaduj nick/avatar
   React.useEffect(() => {
     fetch(`/api/profile?sessionId=${SESSION_ID}`)
       .then(r => r.ok ? r.json() : null)
       .then(d => {
         if (!d) return;
         if (d.steam_id && !myProfile) {
-          // Profil istnieje w DB ale nie w localStorage — synchronizuj
           const p = { steamId: d.steam_id };
           setMyProfile(p);
           storageSet('profile', p);
@@ -862,6 +883,14 @@ function App() {
           setIsAdminByProfile(true);
           const steamId = d.steam_id || myProfile?.steamId;
           if (steamId) setAdminAuth(steamId);
+        }
+        if (d.name) {
+          setSteamName(d.name);
+          storageSet('steamName', d.name);
+        }
+        if (d.avatar) {
+          setSteamAvatar(d.avatar);
+          storageSet('steamAvatar', d.avatar);
         }
       })
       .catch(() => {});
@@ -1051,18 +1080,25 @@ function App() {
           </button>
         )}
         {/* Ikonka profilu */}
-        <button onClick={() => setProfileOpen(true)} title={myProfile ? `linked: ${myProfile.steamId}` : 'link your profile'}
+        <button onClick={() => setProfileOpen(true)}
+          title={myProfile ? (steamName || myProfile.steamId) : 'link your profile'}
           style={{position:'absolute', right:14, top:'50%', transform:'translateY(-50%)',
-            background:'transparent', border:`1px solid ${myProfile ? '#3a3a3a' : '#222'}`,
-            borderRadius:'50%', width:28, height:28, cursor:'pointer',
+            background: steamAvatar ? 'none' : 'transparent',
+            border:`1px solid ${myProfile ? '#3a3a3a' : '#222'}`,
+            borderRadius:'50%', width:28, height:28, cursor:'pointer', overflow:'hidden',
             color: myProfile ? '#888' : '#333', display:'flex', alignItems:'center',
-            justifyContent:'center', padding:0, transition:'border-color .15s, color .15s'}}
-          onMouseEnter={e=>{e.currentTarget.style.borderColor='#555';e.currentTarget.style.color='#aaa'}}
-          onMouseLeave={e=>{e.currentTarget.style.borderColor=myProfile?'#3a3a3a':'#222';e.currentTarget.style.color=myProfile?'#888':'#333'}}>
-          <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-            <circle cx="7" cy="5" r="2.5"/>
-            <path d="M1.5 13c0-3 2.5-5 5.5-5s5.5 2 5.5 5"/>
-          </svg>
+            justifyContent:'center', padding:0, transition:'border-color .15s, opacity .15s'}}
+          onMouseEnter={e=>{e.currentTarget.style.borderColor='#555';e.currentTarget.style.opacity='.8'}}
+          onMouseLeave={e=>{e.currentTarget.style.borderColor=myProfile?'#3a3a3a':'#222';e.currentTarget.style.opacity='1'}}>
+          {steamAvatar
+            ? <img src={steamAvatar} alt="" width="28" height="28" style={{display:'block', borderRadius:'50%'}}/>
+            : steamName
+              ? <span style={{fontSize:10, fontWeight:500, color:'#888'}}>{steamName.slice(0,2).toUpperCase()}</span>
+              : <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                  <circle cx="7" cy="5" r="2.5"/>
+                  <path d="M1.5 13c0-3 2.5-5 5.5-5s5.5 2 5.5 5"/>
+                </svg>
+          }
         </button>
       </div>
 
@@ -1277,7 +1313,7 @@ function App() {
         </div>
       )}
     </div>{Toast}
-    {profileOpen && <ProfileModal onClose={() => setProfileOpen(false)} myProfile={myProfile} onSave={setMyProfile}/>}
+    {profileOpen && <ProfileModal onClose={() => setProfileOpen(false)} myProfile={myProfile} onSave={setMyProfile} steamName={steamName} steamAvatar={steamAvatar}/>}
     </>
   );
 }

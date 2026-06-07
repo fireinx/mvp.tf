@@ -39,13 +39,14 @@ export default async function handler(req, res) {
         ls.title,
         ls.excluded,
         ls.last_seen,
+        ls.played_at,
         COUNT(DISTINCT v.session_id)::int AS vote_sessions,
         COUNT(v.*)::int                   AS total_votes
       FROM log_settings ls
       LEFT JOIN votes v ON v.log_id = ls.log_id
       WHERE ls.first_seen >= $2
-      GROUP BY ls.log_id, ls.map, ls.title, ls.excluded, ls.last_seen
-      ORDER BY ls.last_seen DESC
+      GROUP BY ls.log_id, ls.map, ls.title, ls.excluded, ls.last_seen, ls.played_at
+      ORDER BY COALESCE(ls.played_at, ls.last_seen) DESC
       LIMIT $1
     `, [limit, since]);
 

@@ -44,19 +44,21 @@ export default async function handler(req, res) {
       let synced = 0;
       const logIds = [];
       for (const log of data.logs) {
-        const logId = String(log.id);
-        const map   = log.map   || '';
-        const title = log.title || '';
+        const logId    = String(log.id);
+        const map      = log.map   || '';
+        const title    = log.title || '';
+        const playedAt = log.date  ? new Date(log.date * 1000).toISOString() : null;
 
         // Upsert — first_seen nie zmienia się przy konflikcie
         const { rowCount } = await client.query(`
-          INSERT INTO log_settings (log_id, map, title, last_seen)
-          VALUES ($1, $2, $3, NOW())
+          INSERT INTO log_settings (log_id, map, title, last_seen, played_at)
+          VALUES ($1, $2, $3, NOW(), $4)
           ON CONFLICT (log_id) DO UPDATE SET
             map       = CASE WHEN EXCLUDED.map <> '' THEN EXCLUDED.map ELSE log_settings.map END,
             title     = CASE WHEN EXCLUDED.title <> '' THEN EXCLUDED.title ELSE log_settings.title END,
-            last_seen = NOW()
-        `, [logId, map, title]);
+            last_seen = NOW(),
+            played_at = COALESCE(log_settings.played_at, EXCLUDED.played_at)
+        `, [logId, map, title, playedAt]);
 
         logIds.push(logId);
         if (rowCount > 0) synced++;
