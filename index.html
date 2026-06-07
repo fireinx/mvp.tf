@@ -736,6 +736,67 @@ function MapPoll({ isAdmin }) {
   );
 }
 
+const RECENT_LIMIT = 5;
+
+function RecentSection({ myRecent, othersRecent, isAdmin, onLoad }) {
+  const [tab, setTab]         = useState(myRecent.length > 0 ? 'yours' : 'others');
+  const [expanded, setExpanded] = useState(false);
+
+  const items = tab === 'yours' ? myRecent : othersRecent;
+  const visible = expanded ? items : items.slice(0, RECENT_LIMIT);
+  const hidden  = items.length - visible.length;
+
+  const tabBtn = (key, label, count) => (
+    <button onClick={() => { setTab(key); setExpanded(false); }}
+      style={{fontSize:10, fontWeight:500, letterSpacing:'0.1em', textTransform:'uppercase',
+        background:'transparent', border:'none', cursor:'pointer', fontFamily:'inherit', padding:'0 0 4px',
+        color: tab === key ? '#e8e8e8' : '#333',
+        borderBottom: tab === key ? '1px solid #555' : '1px solid transparent',
+        transition:'color .1s'}}>
+      {label}{count > 0 ? <span style={{color: tab===key?'#555':'#252525', fontWeight:400, marginLeft:4}}>{count}</span> : ''}
+    </button>
+  );
+
+  return (
+    <div style={{padding:'20px 20px 0'}}>
+      <div style={{display:'flex', gap:14, marginBottom:10}}>
+        {tabBtn('yours', 'yours', myRecent.length)}
+        {isAdmin && tabBtn('others', 'others', othersRecent.length)}
+      </div>
+
+      {visible.length === 0 && (
+        <p style={{fontSize:11, color:'#333', margin:'8px 0'}}>no recent lobbies</p>
+      )}
+
+      {visible.map((r, i) => {
+        const id  = r.id   || r.log_id;
+        const map = r.map  || '';
+        const ts  = r.ts   || (r.last_seen ? new Date(r.last_seen).getTime() : null);
+        return (
+          <div key={id} onClick={() => onLoad(id)}
+            style={{display:'flex', alignItems:'center', gap:10, padding:'7px 0',
+              borderBottom:'1px solid #161616', cursor:'pointer'}}
+            onMouseEnter={e=>e.currentTarget.style.opacity='.7'}
+            onMouseLeave={e=>e.currentTarget.style.opacity='1'}>
+            <span style={{fontSize:12, color:'#e8e8e8'}}>#{id}</span>
+            {map && <span style={{fontSize:11, color:'#555', flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>{map}</span>}
+            {ts && <span style={{fontSize:10, color:'#333', flexShrink:0}}>{timeAgo(ts)}</span>}
+          </div>
+        );
+      })}
+
+      {hidden > 0 && (
+        <button onClick={() => setExpanded(true)}
+          style={{marginTop:6, background:'transparent', border:'none', color:'#333',
+            fontSize:10, cursor:'pointer', fontFamily:'inherit', padding:'4px 0'}}
+          onMouseEnter={e=>e.target.style.color='#888'} onMouseLeave={e=>e.target.style.color='#333'}>
+          ↓ {hidden} more
+        </button>
+      )}
+    </div>
+  );
+}
+
 const DEFAULT_LIMIT_MIN = 30;
 
 function App() {
@@ -1034,40 +1095,14 @@ function App() {
       {error && <p style={{margin:'10px 20px 0', fontSize:12, color:'#f87171'}}>{error}</p>}
       {!logData && !loading && !error && (() => {
         const myRecent = storageGet('recent') || [];
-        // Dla admina: pokaż "others" = globalRecent minus te które admin też ma lokalnie
         const myIds = new Set(myRecent.map(r => r.id));
         const othersRecent = isAdmin
           ? globalRecent.filter(r => !myIds.has(r.log_id))
           : [];
         const hasAny = myRecent.length > 0 || othersRecent.length > 0;
-
-        const recentRow = (id, map, onClick, ts) => (
-          <div key={id} onClick={onClick}
-            style={{display:'flex', alignItems:'center', gap:10, padding:'7px 0', borderBottom:'1px solid #161616', cursor:'pointer'}}
-            onMouseEnter={e=>e.currentTarget.style.opacity='.7'} onMouseLeave={e=>e.currentTarget.style.opacity='1'}>
-            <span style={{fontSize:12, color:'#e8e8e8'}}>#{id}</span>
-            {map && <span style={{fontSize:11, color:'#555', flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>{map}</span>}
-            {ts && <span style={{fontSize:10, color:'#333', flexShrink:0}}>{timeAgo(ts)}</span>}
-            {!ts && <span style={{marginLeft:'auto', fontSize:10, color:'#333'}}>→</span>}
-          </div>
-        );
-
-        return hasAny ? (
-          <div style={{padding:'20px 20px 0'}}>
-            {myRecent.length > 0 && <>
-              <div style={{fontSize:10, fontWeight:500, letterSpacing:'0.12em', color:'#333', textTransform:'uppercase', marginBottom:8}}>
-                {isAdmin ? 'recent · yours' : 'recent'}
-              </div>
-              {myRecent.map(r => recentRow(r.id, r.map, () => { setInput(`https://logs.tf/${r.id}`); loadId(r.id); }, r.ts))}
-            </>}
-            {othersRecent.length > 0 && <>
-              <div style={{fontSize:10, fontWeight:500, letterSpacing:'0.12em', color:'#333', textTransform:'uppercase', marginTop:12, marginBottom:8}}>
-                recent · others
-              </div>
-              {othersRecent.map(r => recentRow(r.log_id, r.map, () => { setInput(`https://logs.tf/${r.log_id}`); loadId(r.log_id); }, new Date(r.last_seen).getTime()))}
-            </>}
-          </div>
-        ) : <p style={{textAlign:'center', color:'#2a2a2a', fontSize:13, marginTop:40}}>paste a link from logs.tf and press GO</p>;
+        if (!hasAny) return <p style={{textAlign:'center', color:'#2a2a2a', fontSize:13, marginTop:40}}>paste a link from logs.tf and press GO</p>;
+        return <RecentSection myRecent={myRecent} othersRecent={othersRecent} isAdmin={isAdmin}
+          onLoad={(id) => { setInput(`https://logs.tf/${id}`); loadId(id); }} />;
       })()}
 
       {!logData && !loading && <MapPoll isAdmin={isAdmin} />}
