@@ -288,8 +288,8 @@ function CollapsibleList({ items, renderItem, label = 'player' }) {
       {visible.map(renderItem)}
       {items.length > COLLAPSED_LIMIT && (
         <div onClick={() => setExpanded(e => !e)}
-          style={{fontSize:10, color:'#333', padding:'6px 0', cursor:'pointer', userSelect:'none'}}
-          onMouseEnter={e=>e.target.style.color='#666'} onMouseLeave={e=>e.target.style.color='#333'}>
+          style={{fontSize:10, color:'#555', padding:'6px 0', cursor:'pointer', userSelect:'none'}}
+          onMouseEnter={e=>e.target.style.color='#888'} onMouseLeave={e=>e.target.style.color='#555'}>
           {expanded ? '↑ show less' : `↓ ${hidden} more ${label}s`}
         </div>
       )}
@@ -306,7 +306,7 @@ function AdminRankingPlayers({ rows, onRemove, onClearAll, actionLabel }) {
   const visible = rows.filter(r => !removed.has(r.steam_id));
   return (
     <div>
-      {visible.length === 0 && <div style={{fontSize:11, color:'#333', padding:'4px 0'}}>no players yet</div>}
+      {visible.length === 0 && <div style={{fontSize:11, color:'#555', padding:'4px 0'}}>no players yet</div>}
       <CollapsibleList
         items={visible}
         label="player"
@@ -383,7 +383,7 @@ function AdminSection({ title, badge, children, defaultOpen = true }) {
           {title}
         </span>
         {badge != null && (
-          <span style={{fontSize:10, color:'#333', background:'#1a1a1a', border:'1px solid #222',
+          <span style={{fontSize:10, color:'#666', background:'#1a1a1a', border:'1px solid #2a2a2a',
             borderRadius:10, padding:'1px 7px', lineHeight:'16px'}}>
             {badge}
           </span>
@@ -633,8 +633,8 @@ function MapPool({ mapPool, recentWinners }) {
     <span style={{position:'relative', display:'inline-block'}}>
       <span
         onClick={() => setOpen(v => !v)}
-        style={{fontSize:10, color:'#2a2a2a', cursor:'pointer', userSelect:'none',
-          border:'1px solid #222', borderRadius:3, padding:'1px 5px', lineHeight:'16px'}}
+        style={{fontSize:10, color:'#555', cursor:'pointer', userSelect:'none',
+          border:'1px solid #333', borderRadius:3, padding:'1px 5px', lineHeight:'16px'}}
         onMouseEnter={e=>e.target.style.color='#555'} onMouseLeave={e=>e.target.style.color='#2a2a2a'}>
         ?
       </span>
@@ -642,24 +642,24 @@ function MapPool({ mapPool, recentWinners }) {
         <div style={{position:'absolute', left:0, top:20, zIndex:100,
           background:'#141414', border:'1px solid #2a2a2a', borderRadius:4,
           padding:'10px 12px', minWidth:220, boxShadow:'0 4px 16px #000a'}}>
-          <div style={{fontSize:9, color:'#333', textTransform:'uppercase', letterSpacing:'0.1em', marginBottom:8}}>
+          <div style={{fontSize:9, color:'#666', textTransform:'uppercase', letterSpacing:'0.1em', marginBottom:8}}>
             map pool
           </div>
           {cats.map(cat => (
             <div key={cat.key} style={{marginBottom:8}}>
-              <div style={{fontSize:9, color:'#444', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:3}}>{cat.label}</div>
+              <div style={{fontSize:9, color:'#666', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:3}}>{cat.label}</div>
               {cat.maps.map(m => {
                 const played = recentWinners?.includes(m);
                 return (
                   <div key={m} style={{fontSize:11, color: played ? '#333' : '#666', padding:'1px 0',
                     textDecoration: played ? 'line-through' : 'none'}}>
-                    {m} {played && <span style={{fontSize:9, color:'#333'}}>·played</span>}
+                    {m} {played && <span style={{fontSize:9, color:'#555'}}>·played</span>}
                   </div>
                 );
               })}
             </div>
           ))}
-          <div style={{fontSize:9, color:'#2a2a2a', marginTop:6}}>strikethrough = played in last 12h</div>
+          <div style={{fontSize:9, color:'#555', marginTop:6}}>strikethrough = played in last 12h</div>
         </div>
       )}
     </span>
@@ -760,7 +760,7 @@ function MapPoll({ isAdmin }) {
       {poll && <>
       {/* Header: "next map · N votes" + ? tooltip + admin swap */}
       <div style={{display:'flex', alignItems:'center', gap:6, marginBottom:8}}>
-        <div style={{fontSize:10, fontWeight:500, letterSpacing:'0.12em', color:'#333', textTransform:'uppercase', flex:1}}>
+        <div style={{fontSize:10, fontWeight:500, letterSpacing:'0.12em', color:'#666', textTransform:'uppercase', flex:1}}>
           next map{total > 0 ? <span style={{fontWeight:400}}> · {total} {total===1?'vote':'votes'}</span> : ''}
         </div>
         <MapPool mapPool={mapPool} recentWinners={recentWinners} />
@@ -789,11 +789,11 @@ function MapPoll({ isAdmin }) {
               borderLeft: isMyVote ? '2px solid #555' : '2px solid transparent',
               paddingLeft: isMyVote ? 6 : 8,
             }}>
-            <span style={{fontSize:10, color:'#2a2a2a', minWidth:30}}>{mode(map)}</span>
+            <span style={{fontSize:10, color:'#555', minWidth:30}}>{mode(map)}</span>
             <span style={{flex:1, fontSize:12, color: isMyVote ? '#e8e8e8' : '#888',
               fontWeight: isMyVote ? 500 : 400}}>{map}</span>
-            {myVote && <span style={{fontSize:11, color: isMyVote ? '#aaa' : '#333', minWidth:30, textAlign:'right'}}>{pct}%</span>}
-            {!myVote && <span style={{fontSize:10, color:'#2a2a2a'}}>→</span>}
+            {myVote && <span style={{fontSize:11, color: isMyVote ? '#ccc' : '#555', minWidth:30, textAlign:'right'}}>{pct}%</span>}
+            {!myVote && <span style={{fontSize:10, color:'#444'}}>→</span>}
           </div>
         );
       })}
@@ -801,13 +801,13 @@ function MapPoll({ isAdmin }) {
       {/* Reroll button */}
       <div style={{marginTop:8, display:'flex', alignItems:'center', gap:8}}>
         <button onClick={castReroll} disabled={myReroll}
-          style={{background:'transparent', border:`1px solid ${myReroll ? '#1e1e1e' : '#2a2a2a'}`,
-            borderRadius:3, color: myReroll ? '#2a2a2a' : '#444', fontSize:10,
+          style={{background:'transparent', border:`1px solid ${myReroll ? '#252525' : '#333'}`,
+            borderRadius:3, color: myReroll ? '#444' : '#666', fontSize:10,
             padding:'2px 8px', cursor: myReroll ? 'default' : 'pointer', fontFamily:'inherit'}}
           title={myReroll ? 'you already voted for reroll' : `vote to change maps (${rerollThreshold} needed)`}>
           reroll {rerollCount}/{rerollThreshold}
         </button>
-        {myReroll && <span style={{fontSize:10, color:'#2a2a2a'}}>✓ reroll requested</span>}
+        {myReroll && <span style={{fontSize:10, color:'#444'}}>✓ reroll requested</span>}
       </div>
       </>}
 
@@ -819,7 +819,7 @@ function MapPoll({ isAdmin }) {
           : null;
         return (
           <div style={{marginTop:14, paddingTop:12, borderTop:'1px solid #161616'}}>
-            <div style={{fontSize:10, color:'#2a2a2a', textTransform:'uppercase', letterSpacing:'0.1em', marginBottom:6}}>
+            <div style={{fontSize:10, color:'#555', textTransform:'uppercase', letterSpacing:'0.1em', marginBottom:6}}>
               last poll · {prevTotal} votes
             </div>
             {prevPoll.maps.map(map => {
@@ -829,11 +829,11 @@ function MapPoll({ isAdmin }) {
               return (
                 <div key={map} style={{display:'flex', alignItems:'center', gap:8, padding:'4px 0',
                   opacity: isWinner ? 1 : 0.4,
-                  borderLeft: isWinner ? '2px solid #333' : '2px solid transparent',
+                  borderLeft: isWinner ? '2px solid #555' : '2px solid transparent',
                   paddingLeft: isWinner ? 6 : 8}}>
-                  <span style={{fontSize:10, color:'#2a2a2a', minWidth:30}}>{mode(map)}</span>
-                  <span style={{flex:1, fontSize:11, color: isWinner ? '#888' : '#444'}}>{map}</span>
-                  <span style={{fontSize:10, color:'#333'}}>{pct}%</span>
+                  <span style={{fontSize:10, color:'#555', minWidth:30}}>{mode(map)}</span>
+                  <span style={{flex:1, fontSize:11, color: isWinner ? '#aaa' : '#666'}}>{map}</span>
+                  <span style={{fontSize:10, color:'#666'}}>{pct}%</span>
                 </div>
               );
             })}
@@ -877,21 +877,21 @@ function RecentSection({ items, onLoad }) {
         <span style={{fontSize:12, color: highlight ? '#e8e8e8' : '#e8e8e8'}}>#{id}</span>
         {map && <span style={{fontSize:11, color:'#555', flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>{map}</span>}
         {highlight && <span style={{fontSize:9, color:'#4ade80', fontWeight:500, letterSpacing:'0.08em', flexShrink:0}}>NEW</span>}
-        {ts && <span style={{fontSize:10, color:'#333', flexShrink:0}}>{timeAgo(ts)}</span>}
+        {ts && <span style={{fontSize:10, color:'#555', flexShrink:0}}>{timeAgo(ts)}</span>}
       </div>
     );
   };
 
   return (
     <div style={{padding:'20px 20px 0'}}>
-      <div style={{fontSize:10, fontWeight:500, letterSpacing:'0.12em', color:'#333', textTransform:'uppercase', marginBottom:8}}>
+      <div style={{fontSize:10, fontWeight:500, letterSpacing:'0.12em', color:'#666', textTransform:'uppercase', marginBottom:8}}>
         recent
       </div>
       {newGame && row(newGame, true)}
       {visible.map(r => row(r, false))}
       {hidden > 0 && (
         <button onClick={() => setExpanded(true)}
-          style={{marginTop:6, background:'transparent', border:'none', color:'#333',
+          style={{marginTop:6, background:'transparent', border:'none', color:'#555',
             fontSize:10, cursor:'pointer', fontFamily:'inherit', padding:'4px 0'}}
           onMouseEnter={e=>e.target.style.color='#888'} onMouseLeave={e=>e.target.style.color='#333'}>
           ↓ {hidden} more
@@ -1224,7 +1224,7 @@ function App() {
           ...globalRecent,
           ...localOnly.map(r => ({ log_id: String(r.id), map: r.map, last_seen: new Date(r.ts || 0).toISOString() })),
         ];
-        if (!combined.length) return <p style={{textAlign:'center', color:'#2a2a2a', fontSize:13, marginTop:40}}>paste a link from logs.tf and press GO</p>;
+        if (!combined.length) return <p style={{textAlign:'center', color:'#444', fontSize:13, marginTop:40}}>paste a link from logs.tf and press GO</p>;
         return <RecentSection items={combined} onLoad={(id) => { setInput(`https://logs.tf/${id}`); loadId(id); }} />;
       })()}
 
@@ -1250,7 +1250,7 @@ function App() {
           {/* Leaderboard */}
           {leaderboard.length > 0 ? (
             <>
-              <div style={{fontSize:10, fontWeight:500, letterSpacing:'0.12em', color:'#333', textTransform:'uppercase', marginBottom:8}}>
+              <div style={{fontSize:10, fontWeight:500, letterSpacing:'0.12em', color:'#666', textTransform:'uppercase', marginBottom:8}}>
                 {activeTab === 'hof' ? 'hall of fame' : contests.find(c=>c.id==activeTab)?.name || ''}
               </div>
               <CollapsibleList
@@ -1258,20 +1258,20 @@ function App() {
                 label="player"
                 renderItem={(row, i) => (
                   <div key={row.steam_id} style={{display:'flex', alignItems:'center', gap:10, padding:'7px 0', borderBottom:'1px solid #161616'}}>
-                    <span style={{fontSize:11, color:'#2a2a2a', minWidth:18, textAlign:'right'}}>{leaderboard.indexOf(row)+1}</span>
+                    <span style={{fontSize:11, color:'#444', minWidth:18, textAlign:'right'}}>{leaderboard.indexOf(row)+1}</span>
                     <a href={`https://logs.tf/profile/${toSteam64(row.steam_id)}`} target="_blank" rel="noopener noreferrer"
                       style={{flex:1, fontSize:13, fontWeight:500, color:'#e8e8e8', textDecoration:'none', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}
                       onMouseEnter={e=>e.target.style.textDecoration='underline'} onMouseLeave={e=>e.target.style.textDecoration='none'}>
                       {row.name || row.steam_id}
                     </a>
-                    <span style={{fontSize:10, color:'#444'}}>{row.games_voted_in}g</span>
+                    <span style={{fontSize:10, color:'#666'}}>{row.games_voted_in}g</span>
                     <span style={{fontSize:13, fontWeight:500, color:'#e8e8e8', minWidth:20, textAlign:'right'}}>{row.total_votes}</span>
                   </div>
                 )}
               />
             </>
           ) : (
-            <p style={{textAlign:'center', color:'#2a2a2a', fontSize:13, marginTop:20}}>no votes yet</p>
+            <p style={{textAlign:'center', color:'#444', fontSize:13, marginTop:20}}>no votes yet</p>
           )}
         </div>
       )}
@@ -1288,7 +1288,7 @@ function App() {
         />
       )}
 
-      {loading && <p style={{textAlign:'center', color:'#333', fontSize:13, marginTop:56}}>loading…</p>}
+      {loading && <p style={{textAlign:'center', color:'#555', fontSize:13, marginTop:56}}>loading…</p>}
 
       {logData && (
         <div style={{padding:'0 20px'}}>
@@ -1326,10 +1326,10 @@ function App() {
 
           {ranked.length > 0 && (votesLeft === 0 || !votingOpen || isAdmin) && (
             <div style={{marginTop:28, paddingTop:18, borderTop:'1px solid #1e1e1e'}}>
-              <div style={{fontSize:11, fontWeight:500, letterSpacing:'0.12em', color:'#333', marginBottom:10, textTransform:'uppercase'}}>standings</div>
+              <div style={{fontSize:11, fontWeight:500, letterSpacing:'0.12em', color:'#666', marginBottom:10, textTransform:'uppercase'}}>standings</div>
               {ranked.map((p,i) => (
                 <div key={p.id} style={{display:'flex', alignItems:'center', gap:12, padding:'7px 0', borderBottom:'1px solid #161616'}}>
-                  <span style={{fontSize:11, color:'#333', minWidth:14}}>{i+1}</span>
+                  <span style={{fontSize:11, color:'#444', minWidth:14}}>{i+1}</span>
                   <span style={{flex:1, fontSize:13, fontWeight:500, color:'#e8e8e8'}}>{p.name}</span>
                   <span style={{fontSize:11, fontWeight:500, letterSpacing:'0.08em', color: p.team==='BLU'?'#378ADD':'#E24B4A'}}>{p.team}</span>
                   <span style={{fontSize:14, fontWeight:500, color:'#e8e8e8'}}>{votes[p.id]}</span>
@@ -1364,7 +1364,7 @@ function App() {
               {/* Contest assignment dla tego lobby */}
               {contests.length > 0 && (
                 <div style={{marginTop:10, display:'flex', flexWrap:'wrap', gap:6, alignItems:'center'}}>
-                  <span style={{fontSize:10, color:'#333', textTransform:'uppercase', letterSpacing:'0.1em'}}>contests:</span>
+                  <span style={{fontSize:10, color:'#555', textTransform:'uppercase', letterSpacing:'0.1em'}}>contests:</span>
                   {contests.map(c => {
                     const inContest = c.logs.some(l => l.log_id === logId);
                     return (
