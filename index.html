@@ -458,6 +458,58 @@ function AdminProfilesSection({ act }) {
   );
 }
 
+const LOGI_PAGE_SIZE = 10;
+
+function AdminLogiSection({ globalRecent, contests, act, onLoadLog }) {
+  const [page, setPage] = useState(0);
+  const totalPages = Math.ceil(globalRecent.length / LOGI_PAGE_SIZE);
+  const pageItems  = globalRecent.slice(page * LOGI_PAGE_SIZE, (page + 1) * LOGI_PAGE_SIZE);
+
+  return (
+    <AdminSection title="Logi" badge={globalRecent.length} defaultOpen={true}>
+      {globalRecent.length === 0
+        ? <div style={{fontSize:11, color:'#555'}}>brak logów</div>
+        : pageItems.map(r => (
+          <div key={r.log_id} style={{display:'flex', alignItems:'center', gap:6,
+            padding:'6px 8px', marginBottom:3, background:'#141414', borderRadius:3, flexWrap:'wrap'}}>
+            <span onClick={() => onLoadLog(r.log_id)}
+              style={{fontSize:12, color:'#e8e8e8', cursor:'pointer', minWidth:64,
+                fontWeight:500, letterSpacing:'0.03em'}}
+              onMouseEnter={e=>e.target.style.textDecoration='underline'}
+              onMouseLeave={e=>e.target.style.textDecoration='none'}>
+              #{r.log_id}
+            </span>
+            <span style={{fontSize:11, color:'#555', flex:1, overflow:'hidden',
+              textOverflow:'ellipsis', whiteSpace:'nowrap'}} title={r.map}>{r.map}</span>
+            <span style={{fontSize:10, color:'#555', whiteSpace:'nowrap'}}>
+              {r.vote_sessions}p · {r.total_votes}v
+            </span>
+            <button style={A.tag(r.excluded)} onClick={() => act('toggle_excluded', {logId: r.log_id})}>
+              {r.excluded ? 'unexclude' : 'excl. HoF'}
+            </button>
+            {contests.map(c => {
+              const inContest = c.logs.some(l => l.log_id === r.log_id);
+              return (
+                <button key={c.id} style={A.tag(inContest)}
+                  onClick={() => act(inContest ? 'remove_log_from_contest' : 'add_log_to_contest', {contestId: c.id, logId: r.log_id})}>
+                  {inContest ? `✓ ${c.name}` : `+ ${c.name}`}
+                </button>
+              );
+            })}
+          </div>
+        ))
+      }
+      {totalPages > 1 && (
+        <div style={{display:'flex', alignItems:'center', gap:6, marginTop:8}}>
+          <button style={A.btn(false)} disabled={page === 0} onClick={() => setPage(p => p - 1)}>←</button>
+          <span style={{fontSize:11, color:'#555'}}>{page + 1} / {totalPages}</span>
+          <button style={A.btn(false)} disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)}>→</button>
+        </div>
+      )}
+    </AdminSection>
+  );
+}
+
 // Panel na stronie głównej: global recent + contests + rankingi z tabami
 function AdminHomePanel({ leaderboard, onRefreshLeaderboard, globalRecent, onRefreshRecent, contests, onRefreshContests, onLoadLog }) {
   const [status, setStatus]         = useState('');   // '' | '…' | '✓' | '✗ msg'
@@ -511,40 +563,7 @@ function AdminHomePanel({ leaderboard, onRefreshLeaderboard, globalRecent, onRef
       <div style={{border:'1px solid #1e1e1e', borderTop:'none', borderRadius:'0 0 4px 4px', padding:'0 14px'}}>
 
         {/* ── LOGI ── */}
-        <AdminSection title="Logi" badge={globalRecent.length} defaultOpen={true}>
-          {globalRecent.length === 0
-            ? <div style={{fontSize:11, color:'#333'}}>brak logów</div>
-            : globalRecent.map(r => (
-              <div key={r.log_id} style={{display:'flex', alignItems:'center', gap:6,
-                padding:'6px 8px', marginBottom:3, background:'#141414', borderRadius:3, flexWrap:'wrap'}}>
-                <span onClick={() => onLoadLog(r.log_id)}
-                  style={{fontSize:12, color:'#e8e8e8', cursor:'pointer', minWidth:64,
-                    fontWeight:500, letterSpacing:'0.03em'}}
-                  onMouseEnter={e=>e.target.style.textDecoration='underline'}
-                  onMouseLeave={e=>e.target.style.textDecoration='none'}>
-                  #{r.log_id}
-                </span>
-                <span style={{fontSize:11, color:'#555', flex:1, overflow:'hidden',
-                  textOverflow:'ellipsis', whiteSpace:'nowrap'}} title={r.map}>{r.map}</span>
-                <span style={{fontSize:10, color:'#333', whiteSpace:'nowrap'}}>
-                  {r.vote_sessions}p · {r.total_votes}v
-                </span>
-                <button style={A.tag(r.excluded)} onClick={() => act('toggle_excluded', {logId: r.log_id})}>
-                  {r.excluded ? 'unexclude' : 'excl. HoF'}
-                </button>
-                {contests.map(c => {
-                  const inContest = c.logs.some(l => l.log_id === r.log_id);
-                  return (
-                    <button key={c.id} style={A.tag(inContest)}
-                      onClick={() => act(inContest ? 'remove_log_from_contest' : 'add_log_to_contest', {contestId: c.id, logId: r.log_id})}>
-                      {inContest ? `✓ ${c.name}` : `+ ${c.name}`}
-                    </button>
-                  );
-                })}
-              </div>
-            ))
-          }
-        </AdminSection>
+        <AdminLogiSection globalRecent={globalRecent} contests={contests} act={act} onLoadLog={onLoadLog} />
 
         {/* ── ZAWODY ── */}
         <AdminSection title="Zawody" badge={contests.length} defaultOpen={true}>
