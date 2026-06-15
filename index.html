@@ -851,8 +851,13 @@ function RecentSection({ items, onLoad }) {
 
   if (!items.length) return null;
 
-  // "NEW" = pierwszy log bez głosów (vote_sessions === 0)
-  const newGame = items.find(r => (r.vote_sessions ?? 1) === 0);
+  // "NEW" = pierwszy log bez głosów, rozegrany nie dalej niż 30 minut temu
+  const NEW_WINDOW_MS = 30 * 60 * 1000;
+  const newGame = items.find(r => {
+    if ((r.vote_sessions ?? 1) !== 0) return false;
+    const ts = r.played_at ? new Date(r.played_at).getTime() : r.last_seen ? new Date(r.last_seen).getTime() : 0;
+    return ts > 0 && (Date.now() - ts) < NEW_WINDOW_MS;
+  });
   const rest    = items.filter(r => r !== newGame);
   const visible = expanded ? rest : rest.slice(0, RECENT_LIMIT);
   const hidden  = rest.length - visible.length;
